@@ -1,4 +1,4 @@
-Name: Build OpenWrt
+name: Build OpenWrt
 
 on:
   workflow_dispatch:
