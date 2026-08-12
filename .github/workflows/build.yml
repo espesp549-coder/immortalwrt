@@ -25,6 +25,16 @@ jobs:
           [ -e config.seed ] && cp config.seed .config
           make defconfig
 
+      - name: Verify Device Definition
+        run: |
+          echo "=== Checking Makefile device definition ==="
+          grep -n "qihoo_360t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found in mt7621.mk" && exit 1)
+          echo "=== Checking DTS file exists ==="
+          ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS file not found" && exit 1)
+          echo "=== Checking .config has device enabled ==="
+          grep -n "qihoo_360t6m" .config || (echo "ERROR: Device not enabled in .config" && exit 1)
+          echo "=== All checks passed ==="
+
       - name: Build Firmware
         run: |
           make -j$(nproc) V=s
@@ -34,5 +44,4 @@ jobs:
         with:
           name: OpenWrt-Firmware
           path: |
-            bin/targets/**/*
             bin/targets/**/*
