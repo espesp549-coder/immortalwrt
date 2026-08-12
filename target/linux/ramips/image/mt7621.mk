@@ -4036,12 +4036,19 @@ TARGET_DEVICES += zyxel_wsm20
 
 
 define Device/qihoo_360t6m
-  $(call Device/PowerProfile)
-  $(call Device/DualFlash)
+  $(Device/nand)
   DEVICE_VENDOR := Qihoo
   DEVICE_MODEL := 360T6M
-  DEVICE_PACKAGES := kmod-mt7603 kmod-mt7615e wpad-basic-mbedtls
-  PRODUCT_MODEL := 360T6M
-  IMAGE_SIZE := 15360k
+  DEVICE_DTS := mt7621_qihoo_360t6m
+  SOC := mt7621
+  KERNEL_SIZE := 4096k
+  IMAGE_SIZE := 124416k
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-basic-mbedtls
+  IMAGES += factory.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += qihoo_360t6m
