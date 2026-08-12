@@ -1,0 +1,37 @@
+name: Build OpenWrt
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialization Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-ready libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd
+
+      - name: Download packages & Update feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load Custom Config
+        run: |
+          [ -e config.seed ] && cp config.seed .config
+          make defconfig
+
+      - name: Build Firmware
+        run: |
+          make -j$(nproc) V=s
+
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-Firmware
+          path: bin/targets/ramips/mt7621/
+          
