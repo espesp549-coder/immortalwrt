@@ -35,3 +35,4 @@ jobs:
           name: OpenWrt-Firmware
           path: |
             bin/targets/**/*
+            bin/targets/**/*
