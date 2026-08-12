@@ -4033,3 +4033,15 @@ define Device/zyxel_wsm20
   KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb | znet-header V1.00(ABZF.0)C0
 endef
 TARGET_DEVICES += zyxel_wsm20
+
+
+define Device/qihoo_360t6m
+  $(call Device/PowerProfile)
+  $(call Device/DualFlash)
+  DEVICE_VENDOR := Qihoo
+  DEVICE_MODEL := 360T6M
+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt7615e wpad-basic-mbedtls
+  PRODUCT_MODEL := 360T6M
+  IMAGE_SIZE := 15360k
+endef
+TARGET_DEVICES += qihoo_360t6m
