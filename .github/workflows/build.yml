@@ -13,7 +13,7 @@ jobs:
       - name: Initialization Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-ready libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd file wget
 
       - name: Download packages & Update feeds
         run: |
@@ -34,4 +34,3 @@ jobs:
         with:
           name: OpenWrt-Firmware
           path: bin/targets/ramips/mt7621/
-          
