@@ -1,4 +1,4 @@
-name: Build OpenWrt
+Name: Build OpenWrt
 
 on:
   workflow_dispatch:
@@ -33,4 +33,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OpenWrt-Firmware
-          path: bin/targets/ramips/mt7621/
+          path: |
+            bin/targets/**/*
