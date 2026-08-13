@@ -35,6 +35,23 @@ jobs:
           grep -n "qihoo_360t6m" .config || (echo "ERROR: Device not enabled in .config" && exit 1)
           echo "=== All checks passed ==="
 
+      - name: Check uImage compression options
+        run: |
+          echo "=== Searching for uImage compression definitions ==="
+          grep -rn "uImage/none\|uimage.*none\|IMAGE_KERNEL.*none" include/ scripts/ 2>/dev/null | head -20
+          echo "=== Searching for uImage macro definition ==="
+          grep -n "define Build/uImage" -A 15 include/image-commands.mk 2>/dev/null
+
+      - name: Build Firmware
+        run: |
+          make -j$(nproc) V=s
+
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-Firmware
+          path: |
+            bin/targets/**/*
       - name: Build Firmware
         run: |
           make -j$(nproc) V=s
