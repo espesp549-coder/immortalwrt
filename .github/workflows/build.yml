@@ -1,4 +1,4 @@
-name: Build OpenWrt 24.10.4
+name: Build OpenWrt
 
 on:
   workflow_dispatch:
@@ -9,9 +9,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          repository: immortalwrt/immortalwrt
-          ref: v24.10.4
 
       - name: Initialization Environment
         run: |
@@ -45,7 +42,6 @@ jobs:
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt-Firmware-24.10.4
+          name: OpenWrt-Firmware
           path: |
             bin/targets/**/*
-            
