@@ -33,6 +33,11 @@ jobs:
           ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS file not found" && exit 1)
           echo "=== Checking .config has device enabled ==="
           grep -n "qihoo_360t6m" .config || (echo "ERROR: Device not enabled in .config" && exit 1)
+          echo "=== Verify KERNEL uses uImage (not FIT) ==="
+          grep -A1 "KERNEL :=" target/linux/ramips/image/mt7621.mk | grep -q "uImage" && echo "OK: uImage confirmed" || (echo "ERROR: not uImage format!" && exit 1)
+          echo "=== Verify DEVICE_VENDOR matches DTS compatible ==="
+          grep "DEVICE_VENDOR" target/linux/ramips/image/mt7621.mk
+          grep "compatible" target/linux/ramips/dts/mt7621_qihoo_360t6m.dts | head -1
           echo "=== All checks passed ==="
 
       - name: Build Firmware
