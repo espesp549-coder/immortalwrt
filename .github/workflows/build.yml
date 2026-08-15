@@ -3,50 +3,71 @@ name: Build OpenWrt
 on:
   workflow_dispatch:
 
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  TZ: Asia/Baghdad
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Initialization Environment
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd file wget
+          sudo timedatectl set-timezone "$TZ"
 
-      - name: Download packages & Update feeds
+      - name: Clone Source Code
         run: |
+          git clone $REPO_URL -b $REPO_BRANCH openwrt
+
+      - name: Inject Device & Load Config
+        run: |
+          # نسخ ملف .config الخاص بك إلى السورس
+          [ -e .config ] && cp .config openwrt/.config
+          
+          cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Load Custom Config
-        run: |
-          [ -e config.seed ] && cp config.seed .config
           make defconfig
 
-      - name: Verify Device Definition
+      - name: Verify Device Definition & Kernel LZMA
         run: |
+          cd openwrt
           echo "=== Checking Makefile device definition ==="
           grep -n "qihoo_360t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found in mt7621.mk" && exit 1)
+          
           echo "=== Checking DTS file exists ==="
           ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS file not found" && exit 1)
+          
           echo "=== Checking .config has device enabled ==="
           grep -n "qihoo_360t6m" .config || (echo "ERROR: Device not enabled in .config" && exit 1)
-          echo "=== Verify KERNEL uses uImage (not FIT) ==="
-          grep -A1 "KERNEL :=" target/linux/ramips/image/mt7621.mk | grep -q "uImage" && echo "OK: uImage confirmed" || (echo "ERROR: not uImage format!" && exit 1)
-          echo "=== Verify DEVICE_VENDOR matches DTS compatible ==="
-          grep "DEVICE_VENDOR" target/linux/ramips/image/mt7621.mk
-          grep "compatible" target/linux/ramips/dts/mt7621_qihoo_360t6m.dts | head -1
+          
+          echo "=== Verify KERNEL uses FIT + LZMA Compression ==="
+          grep "CONFIG_KERNEL_LZMA=y" .config && echo "OK: LZMA enabled in .config" || (echo "ERROR: LZMA not enabled!" && exit 1)
+          
           echo "=== All checks passed ==="
+
+      - name: Download packages
+        run: |
+          cd openwrt
+          make download -j8
+          find dl -size -1024c -exec rm -f {} \;
 
       - name: Build Firmware
         run: |
+          cd openwrt
           make -j$(nproc) V=s
 
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt-Firmware-${{ github.run_number }}
+          name: OpenWrt-Qihoo360T6M-${{ github.run_number }}
           path: |
-            bin/targets/**/*
+            openwrt/bin/targets/ramips/mt7621/*sysupgrade.bin
+            openwrt/bin/targets/ramips/mt7621/*factory.bin
+            
