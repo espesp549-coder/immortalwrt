@@ -4047,8 +4047,8 @@ define Device/qihoo_360t6m
   UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
-  KERNEL_LOADADDR := 0x80001000
-  KERNEL := kernel-bin | lzma | uImage lzma
+  KERNEL_LOADADDR := 0x80000000
+  KERNEL := kernel-bin | relocate-kernel $(loadaddr-y) | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-basic-mbedtls luci luci-ssl dropbear
   IMAGES += factory.bin
   IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
