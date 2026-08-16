@@ -1,6 +1,6 @@
 CONFIG_TARGET_ramips=y
 CONFIG_TARGET_ramips_mt7621=y
-CONFIG_TARGET_ramips_mt7621_DEVICE_qihoo_360t6m=y
+CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
 
 # UBI/UBIFS support
 CONFIG_MTD_UBI=y
@@ -16,23 +16,14 @@ CONFIG_NETFILTER_XT_TARGET_TPROXY=y
 CONFIG_NETFILTER_XT_MATCH_SOCKET=y
 CONFIG_NF_CONNTRACK_MARK=y
 
-# حل تعارض dnsmasq وتأمين دعم TProxy للـ DNS
-# CONFIG_PACKAGE_dnsmasq is not set
-CONFIG_PACKAGE_dnsmasq-full=y
-CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-CONFIG_PACKAGE_dnsmasq_full_dnssec=y
-CONFIG_PACKAGE_dnsmasq_full_ipset=y
-CONFIG_PACKAGE_dnsmasq_full_nftset=y
-CONFIG_PACKAGE_dnsmasq_full_tproxy=y
-
-# الواي فاي (MT7915)
+# الواي فاي
 CONFIG_PACKAGE_kmod-mt76-connac=y
 CONFIG_PACKAGE_kmod-mt76-core=y
 CONFIG_PACKAGE_kmod-mt7915-firmware=y
 CONFIG_PACKAGE_kmod-mt7915e=y
 CONFIG_PACKAGE_wpad-openssl=y
 
-# أدوات النظام والنواة الأساسية
+# أدوات أساسية
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-ssl=y
 CONFIG_PACKAGE_dropbear=y
