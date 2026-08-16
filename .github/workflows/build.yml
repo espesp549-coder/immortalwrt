@@ -7,17 +7,13 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout (branch 23.05.0)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: 23.05.0
 
       - name: Verify Branch
         run: |
-          echo "=== Current branch/ref ==="
           git branch --show-current
           git log -1 --oneline
-          cat include/version.mk | grep -i "release\|version" | head -5
 
       - name: Initialization Environment
         run: |
@@ -36,32 +32,17 @@ jobs:
 
       - name: Verify Device Definition
         run: |
-          grep -n "qihoo_360t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found" && exit 1)
-          ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS not found" && exit 1)
-          grep -n "qihoo_360t6m" .config || (echo "ERROR: Device not enabled" && exit 1)
+          grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found" && exit 1)
+          ls -la target/linux/ramips/dts/mt7621_360_t6m.dts || (echo "ERROR: DTS not found" && exit 1)
+          grep -n "360_t6m" .config || (echo "ERROR: Device not enabled" && exit 1)
           grep -A1 "KERNEL :=" target/linux/ramips/image/mt7621.mk | grep -q "uImage none" && echo "OK: uImage none confirmed" || (echo "ERROR: wrong kernel format!" && exit 1)
 
       - name: Deep UBI Configuration Trace
         run: |
-          echo "=== 1. Find Device/nand macro definition ==="
-          grep -rln "define Device/nand" --include="*.mk" . 2>/dev/null
-
-          echo "=== 2. Show full content of Device/nand macro ==="
-          NAND_FILE=$(grep -rln "define Device/nand" --include="*.mk" . 2>/dev/null | head -1)
-          if [ -n "$NAND_FILE" ]; then
-            grep -A 30 "^define Device/nand" "$NAND_FILE"
-          else
-            echo "Device/nand not found in any .mk file"
-          fi
-
-          echo "=== 3. Check if UBI is default-enabled for ramips target config ==="
-          find target/linux/ramips -name "config-5.15*" -exec grep -Hn "CONFIG_MTD_UBI\|CONFIG_UBIFS" {} \;
-
-          echo "=== 4. Verify our config.seed UBI lines survive after defconfig ==="
-          grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || echo "WARNING: UBI config lines missing from final .config!"
-
-          echo "=== 5. Compare with known-working NAND device (covr-x1860) ==="
-          grep -B5 -A15 "define Device/dlink_covr-x1860" target/linux/ramips/image/mt7621.mk 2>/dev/null || echo "covr-x1860 device definition not found"
+          echo "=== Device/nand macro ==="
+          grep -A 30 "^define Device/nand" include/nand.mk 2>/dev/null || find . -name "nand.mk" -exec grep -A 30 "^define Device/nand" {} \;
+          echo "=== UBI config after defconfig ==="
+          grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || echo "WARNING: missing"
 
       - name: Build Firmware
         run: |
