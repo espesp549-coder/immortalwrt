@@ -3,49 +3,21 @@ name: Build OpenWrt
 on:
   workflow_dispatch:
 
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: v23.05.0
-
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: Checkout (branch 23.05.0)
         uses: actions/checkout@v4
+        with:
+          ref: 23.05.0
 
-      - name: Clone Source
+      - name: Verify Branch
         run: |
-          git clone $REPO_URL -b $REPO_BRANCH openwrt
-
-      - name: Inject Device Definition
-        run: |
-          cd openwrt
-          echo '' >> target/linux/ramips/image/mt7621.mk
-          echo 'define Device/qihoo_360t6m' >> target/linux/ramips/image/mt7621.mk
-          echo '  $(Device/nand)' >> target/linux/ramips/image/mt7621.mk
-          echo '  DEVICE_VENDOR := 360' >> target/linux/ramips/image/mt7621.mk
-          echo '  DEVICE_MODEL := 360T6M' >> target/linux/ramips/image/mt7621.mk
-          echo '  DEVICE_DTS := mt7621_qihoo_360t6m' >> target/linux/ramips/image/mt7621.mk
-          echo '  DEVICE_DTS_DIR := ../dts' >> target/linux/ramips/image/mt7621.mk
-          echo '  SOC := mt7621' >> target/linux/ramips/image/mt7621.mk
-          echo '  KERNEL_SIZE := 4096k' >> target/linux/ramips/image/mt7621.mk
-          echo '  IMAGE_SIZE := 124416k' >> target/linux/ramips/image/mt7621.mk
-          echo '  UBINIZE_OPTS := -E 5' >> target/linux/ramips/image/mt7621.mk
-          echo '  BLOCKSIZE := 128k' >> target/linux/ramips/image/mt7621.mk
-          echo '  PAGESIZE := 2048' >> target/linux/ramips/image/mt7621.mk
-          echo '  KERNEL_LOADADDR := 0x80000000' >> target/linux/ramips/image/mt7621.mk
-          echo '  KERNEL := kernel-bin | relocate-kernel $(loadaddr-y) | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb' >> target/linux/ramips/image/mt7621.mk
-          echo '  DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-openssl luci luci-ssl dropbear' >> target/linux/ramips/image/mt7621.mk
-          echo '  IMAGES += factory.bin' >> target/linux/ramips/image/mt7621.mk
-          echo '  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size' >> target/linux/ramips/image/mt7621.mk
-          echo '  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata' >> target/linux/ramips/image/mt7621.mk
-          echo 'endef' >> target/linux/ramips/image/mt7621.mk
-          echo 'TARGET_DEVICES += qihoo_360t6m' >> target/linux/ramips/image/mt7621.mk
-          
-          if [ -f "../mt7621_qihoo_360t6m.dts" ]; then
-            cp ../mt7621_qihoo_360t6m.dts target/linux/ramips/dts/
-          fi
+          echo "=== Current branch/ref ==="
+          git branch --show-current
+          git log -1 --oneline
+          cat include/version.mk | grep -i "release\|version" | head -5
 
       - name: Initialization Environment
         run: |
@@ -54,32 +26,45 @@ jobs:
 
       - name: Download packages & Update feeds
         run: |
-          cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Load Custom Config
         run: |
-          cd openwrt
-          [ -e ../config.seed ] && cp ../config.seed .config
-          echo "CONFIG_TARGET_ramips=y" >> .config
-          echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_ramips_mt7621_DEVICE_qihoo_360t6m=y" >> .config
+          [ -e config.seed ] && cp config.seed .config
           make defconfig
 
       - name: Verify Device Definition
         run: |
-          cd openwrt
-          echo "=== Checking Makefile device definition ==="
-          grep -n "qihoo_360t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found in mt7621.mk" && exit 1)
-          
-          echo "=== Verify KERNEL uses FIT + LZMA Compression ==="
-          grep "fit lzma" target/linux/ramips/image/mt7621.mk && echo "OK: FIT LZMA confirmed" || (echo "ERROR: FIT LZMA not set!" && exit 1)
-          echo "=== All checks passed ==="
+          grep -n "qihoo_360t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found" && exit 1)
+          ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS not found" && exit 1)
+          grep -n "qihoo_360t6m" .config || (echo "ERROR: Device not enabled" && exit 1)
+          grep -A1 "KERNEL :=" target/linux/ramips/image/mt7621.mk | grep -q "uImage none" && echo "OK: uImage none confirmed" || (echo "ERROR: wrong kernel format!" && exit 1)
+
+      - name: Deep UBI Configuration Trace
+        run: |
+          echo "=== 1. Find Device/nand macro definition ==="
+          grep -rln "define Device/nand" --include="*.mk" . 2>/dev/null
+
+          echo "=== 2. Show full content of Device/nand macro ==="
+          NAND_FILE=$(grep -rln "define Device/nand" --include="*.mk" . 2>/dev/null | head -1)
+          if [ -n "$NAND_FILE" ]; then
+            grep -A 30 "^define Device/nand" "$NAND_FILE"
+          else
+            echo "Device/nand not found in any .mk file"
+          fi
+
+          echo "=== 3. Check if UBI is default-enabled for ramips target config ==="
+          find target/linux/ramips -name "config-5.15*" -exec grep -Hn "CONFIG_MTD_UBI\|CONFIG_UBIFS" {} \;
+
+          echo "=== 4. Verify our config.seed UBI lines survive after defconfig ==="
+          grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || echo "WARNING: UBI config lines missing from final .config!"
+
+          echo "=== 5. Compare with known-working NAND device (covr-x1860) ==="
+          grep -B5 -A15 "define Device/dlink_covr-x1860" target/linux/ramips/image/mt7621.mk 2>/dev/null || echo "covr-x1860 device definition not found"
 
       - name: Build Firmware
         run: |
-          cd openwrt
           make -j$(nproc) V=s
 
       - name: Upload Firmware
@@ -87,6 +72,4 @@ jobs:
         with:
           name: OpenWrt-Firmware-${{ github.run_number }}
           path: |
-            openwrt/bin/targets/ramips/mt7621/*factory.bin
-            openwrt/bin/targets/ramips/mt7621/*sysupgrade.bin
-            
+            bin/targets/**/*
