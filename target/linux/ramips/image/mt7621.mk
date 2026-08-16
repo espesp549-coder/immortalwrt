@@ -4034,16 +4034,14 @@ define Device/zyxel_wsm20
 endef
 TARGET_DEVICES += zyxel_wsm20
 
-
-define Device/qihoo_360t6m
+define Device/360_t6m
   $(Device/nand)
   DEVICE_VENDOR := 360
-  DEVICE_MODEL := 360T6M
-  DEVICE_DTS := mt7621_qihoo_360t6m
+  DEVICE_MODEL := T6M
+  DEVICE_DTS := mt7621_360_t6m
   SOC := mt7621
   KERNEL_SIZE := 4096k
   IMAGE_SIZE := 124416k
-  UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   KERNEL_LOADADDR := 0x80001000
@@ -4053,4 +4051,4 @@ define Device/qihoo_360t6m
   IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
-TARGET_DEVICES += qihoo_360t6m
+TARGET_DEVICES += 360_t6m
