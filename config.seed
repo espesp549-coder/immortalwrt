@@ -16,7 +16,9 @@ CONFIG_NETFILTER_XT_TARGET_TPROXY=y
 CONFIG_NETFILTER_XT_MATCH_SOCKET=y
 CONFIG_NF_CONNTRACK_MARK=y
 
-# الواي فاي
+# الواي فاي (إلغاء التعارض وتحديد wpad-openssl)
+# CONFIG_PACKAGE_wpad-basic-mbedtls is not set
+# CONFIG_PACKAGE_wpad-mini is not set
 CONFIG_PACKAGE_kmod-mt76-connac=y
 CONFIG_PACKAGE_kmod-mt76-core=y
 CONFIG_PACKAGE_kmod-mt7915-firmware=y
