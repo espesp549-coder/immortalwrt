@@ -33,16 +33,21 @@ jobs:
       - name: Verify Device Definition
         run: |
           grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found" && exit 1)
-          ls -la target/linux/ramips/dts/mt7621_360_t6m.dts || (echo "ERROR: DTS not found" && exit 1)
+          ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS not found" && exit 1)
           grep -n "360_t6m" .config || (echo "ERROR: Device not enabled" && exit 1)
-          grep -A1 "KERNEL :=" target/linux/ramips/image/mt7621.mk | grep -q "uImage none" && echo "OK: uImage none confirmed" || (echo "ERROR: wrong kernel format!" && exit 1)
+          grep -A15 "define Device/360_t6m" target/linux/ramips/image/mt7621.mk | grep -q "uImage none" && echo "OK: uImage none confirmed" || (echo "ERROR: wrong kernel format!" && exit 1)
 
       - name: Deep UBI Configuration Trace
         run: |
           echo "=== Device/nand macro ==="
-          grep -A 30 "^define Device/nand" include/nand.mk 2>/dev/null || find . -name "nand.mk" -exec grep -A 30 "^define Device/nand" {} \;
+          grep -A 30 "^define Device/nand" include/nand.mk 2>/devnull || find . -name "nand.mk" -exec grep -A 30 "^define Device/nand" {} \;
           echo "=== UBI config after defconfig ==="
           grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || echo "WARNING: missing"
+
+      - name: Download package sources
+        run: |
+          make download -j8
+          find dl -size -1024c -exec rm -f {} \;
 
       - name: Build Firmware
         run: |
@@ -53,4 +58,5 @@ jobs:
         with:
           name: OpenWrt-Firmware-${{ github.run_number }}
           path: |
-            bin/targets/**/*
+            bin/targets/ramips/mt7621/*360*
+            
