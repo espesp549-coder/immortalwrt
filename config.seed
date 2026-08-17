@@ -1,6 +1,7 @@
 CONFIG_TARGET_ramips=y
 CONFIG_TARGET_ramips_mt7621=y
 CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
+CONFIG_LEGACY_IMAGE_FORMAT=y
 
 # UBI/UBIFS support
 CONFIG_MTD_UBI=y
@@ -17,8 +18,6 @@ CONFIG_NETFILTER_XT_MATCH_SOCKET=y
 CONFIG_NF_CONNTRACK_MARK=y
 
 # الواي فاي
-# CONFIG_PACKAGE_wpad-basic-mbedtls is not set
-# CONFIG_PACKAGE_wpad-mini is not set
 CONFIG_PACKAGE_kmod-mt76-connac=y
 CONFIG_PACKAGE_kmod-mt76-core=y
 CONFIG_PACKAGE_kmod-mt7915-firmware=y
