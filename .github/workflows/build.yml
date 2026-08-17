@@ -26,33 +26,77 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Inject uImage Device Definition
+        run: |
+          # تنظيف أي تعريفات سابقة لمنع التعارض
+          sed -i '/define Device\/360_t6m/,/endef/d' target/linux/ramips/image/mt7621.mk
+          sed -i '/TARGET_DEVICES += 360_t6m/d' target/linux/ramips/image/mt7621.mk
+
+          # كتابة تعريف uImage الصريح المباشر
+          cat << 'EOF' >> target/linux/ramips/image/mt7621.mk
+
+          define Device/360_t6m
+            $(Device/nand)
+            DEVICE_VENDOR := 360
+            DEVICE_MODEL := T6M
+            DEVICE_DTS := mt7621_qihoo_360t6m
+            SOC := mt7621
+            KERNEL_SIZE := 4096k
+            IMAGE_SIZE := 124416k
+            BLOCKSIZE := 128k
+            PAGESIZE := 2048
+            KERNEL_LOADADDR := 0x80001000
+            KERNEL := kernel-bin | append-dtb | lzma | uImage lzma
+            DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-openssl luci luci-ssl dropbear
+            IMAGES += factory.bin
+            IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
+            IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+          endef
+          TARGET_DEVICES += 360_t6m
+          EOF
+
       - name: Load Custom Config
         run: |
-          [ -e config.seed ] && cp config.seed .config
+          cat << 'EOF' > .config
+          CONFIG_TARGET_ramips=y
+          CONFIG_TARGET_ramips_mt7621=y
+          CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
+          CONFIG_LEGACY_IMAGE_FORMAT=y
+
+          # UBI/UBIFS support
+          CONFIG_MTD_UBI=y
+          CONFIG_MTD_UBI_BEB_LIMIT=20
+          CONFIG_MTD_UBI_FASTMAP=y
+          CONFIG_UBIFS_FS=y
+
+          # tproxy/tun
+          CONFIG_PACKAGE_kmod-nft-tproxy=y
+          CONFIG_PACKAGE_kmod-tun=y
+          CONFIG_PACKAGE_iptables-nft=y
+          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
+          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
+          CONFIG_NF_CONNTRACK_MARK=y
+
+          # Wi-Fi
+          CONFIG_PACKAGE_kmod-mt76-connac=y
+          CONFIG_PACKAGE_kmod-mt76-core=y
+          CONFIG_PACKAGE_kmod-mt7915-firmware=y
+          CONFIG_PACKAGE_kmod-mt7915e=y
+          CONFIG_PACKAGE_wpad-openssl=y
+
+          # Essential Tools
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_PACKAGE_dropbear=y
+          EOF
+
           make defconfig
 
-          echo "===== KERNEL CONFIG ====="
-          grep -E 'CONFIG_(TARGET|KERNEL|INITRAMFS|DEBUG|KALLSYMS|BPF|FTRACE|PERF|KPROBES|KEXEC|KGDB)' .config || true
-
-          echo "===== DEVICE CONFIG ====="
-          grep -E 'CONFIG_TARGET_ramips|CONFIG_TARGET_ramips_mt7621|CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m' .config || true
-
-          echo "===== DEVICE DEFINITION ====="
-          grep -n -A30 -B5 'define Device/360_t6m' target/linux/ramips/image/mt7621.mk || true
-
-      - name: Verify Device Definition
+      - name: Verify Device Definition & uImage
         run: |
           grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || exit 1
+          grep -n "uImage lzma" target/linux/ramips/image/mt7621.mk || exit 1
           test -f target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || exit 1
-          grep -n "CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y" .config || exit 1
-
-      - name: Deep UBI Configuration Trace
-        run: |
-          echo "===== NAND ====="
-          grep -A30 "^define Device/nand" include/nand.mk 2>/dev/null || true
-
-          echo "===== UBI ====="
-          grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || true
 
       - name: Download package sources
         run: |
@@ -63,17 +107,6 @@ jobs:
         run: |
           make -j$(nproc) V=s
 
-      - name: Kernel Size
-        if: always()
-        run: |
-          echo "===== KERNEL FILES ====="
-
-          find build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621 \
-            -maxdepth 2 \
-            -type f \
-            \( -name "*kernel*" -o -name "vmlinux" -o -name "*.dtb" \) \
-            -exec ls -lh {} \; 2>/dev/null || true
-
       - name: Upload Firmware
         if: success()
         uses: actions/upload-artifact@v4
@@ -81,3 +114,4 @@ jobs:
           name: OpenWrt-Firmware-${{ github.run_number }}
           path: |
             bin/targets/ramips/mt7621/*360*
+            
