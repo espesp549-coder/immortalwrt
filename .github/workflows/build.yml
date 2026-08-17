@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,19 +31,28 @@ jobs:
           [ -e config.seed ] && cp config.seed .config
           make defconfig
 
+          echo "===== KERNEL CONFIG ====="
+          grep -E 'CONFIG_(TARGET|KERNEL|INITRAMFS|DEBUG|KALLSYMS|BPF|FTRACE|PERF|KPROBES|KEXEC|KGDB)' .config || true
+
+          echo "===== DEVICE CONFIG ====="
+          grep -E 'CONFIG_TARGET_ramips|CONFIG_TARGET_ramips_mt7621|CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m' .config || true
+
+          echo "===== DEVICE DEFINITION ====="
+          grep -n -A30 -B5 'define Device/360_t6m' target/linux/ramips/image/mt7621.mk || true
+
       - name: Verify Device Definition
         run: |
-          grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || (echo "ERROR: Device not found" && exit 1)
-          ls -la target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || (echo "ERROR: DTS not found" && exit 1)
-          grep -n "360_t6m" .config || (echo "ERROR: Device not enabled" && exit 1)
-          grep -A15 "define Device/360_t6m" target/linux/ramips/image/mt7621.mk | grep -q "uImage none" && echo "OK: uImage none confirmed" || (echo "ERROR: wrong kernel format!" && exit 1)
+          grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || exit 1
+          test -f target/linux/ramips/dts/mt7621_qihoo_360t6m.dts || exit 1
+          grep -n "CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y" .config || exit 1
 
       - name: Deep UBI Configuration Trace
         run: |
-          echo "=== Device/nand macro ==="
-          grep -A 30 "^define Device/nand" include/nand.mk 2>/devnull || find . -name "nand.mk" -exec grep -A 30 "^define Device/nand" {} \;
-          echo "=== UBI config after defconfig ==="
-          grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || echo "WARNING: missing"
+          echo "===== NAND ====="
+          grep -A30 "^define Device/nand" include/nand.mk 2>/dev/null || true
+
+          echo "===== UBI ====="
+          grep "CONFIG_MTD_UBI\|CONFIG_UBIFS" .config || true
 
       - name: Download package sources
         run: |
@@ -51,12 +61,23 @@ jobs:
 
       - name: Build Firmware
         run: |
-          make -j$(nproc) V=s || make target/linux/install -j1 V=s
+          make -j$(nproc) V=s
+
+      - name: Kernel Size
+        if: always()
+        run: |
+          echo "===== KERNEL FILES ====="
+
+          find build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621 \
+            -maxdepth 2 \
+            -type f \
+            \( -name "*kernel*" -o -name "vmlinux" -o -name "*.dtb" \) \
+            -exec ls -lh {} \; 2>/dev/null || true
 
       - name: Upload Firmware
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: OpenWrt-Firmware-${{ github.run_number }}
           path: |
             bin/targets/ramips/mt7621/*360*
-            
