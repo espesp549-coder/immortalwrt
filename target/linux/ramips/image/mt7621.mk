@@ -4045,7 +4045,7 @@ define Device/360_t6m
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   KERNEL_LOADADDR := 0x80001000
-  KERNEL := kernel-bin | uImage none
+  KERNEL := kernel-bin | append-dtb | uImage none
   DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-openssl luci luci-ssl dropbear
   IMAGES += factory.bin
   IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
