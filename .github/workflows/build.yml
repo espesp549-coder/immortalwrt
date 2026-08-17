@@ -28,11 +28,9 @@ jobs:
 
       - name: Inject uImage Device Definition
         run: |
-          # تنظيف أي تعريفات سابقة لمنع التعارض
           sed -i '/define Device\/360_t6m/,/endef/d' target/linux/ramips/image/mt7621.mk
           sed -i '/TARGET_DEVICES += 360_t6m/d' target/linux/ramips/image/mt7621.mk
 
-          # كتابة تعريف uImage الصريح المباشر
           cat << 'EOF' >> target/linux/ramips/image/mt7621.mk
 
           define Device/360_t6m
@@ -53,6 +51,36 @@ jobs:
             IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
           endef
           TARGET_DEVICES += 360_t6m
+          EOF
+
+      - name: Inject Master Network Configuration
+        run: |
+          mkdir -p files/etc/config
+          cat << 'EOF' > files/etc/config/network
+          config interface 'loopback'
+              option device 'lo'
+              option proto 'static'
+              option ipaddr '127.0.0.1'
+              option netmask '255.0.0.0'
+
+          config globals 'globals'
+              option ula_prefix 'fd00::/64'
+
+          config device
+              option name 'br-lan'
+              option type 'bridge'
+              list ports 'eth0'
+              list ports 'eth1'
+              list ports 'lan1'
+              list ports 'lan2'
+              list ports 'lan3'
+              list ports 'wan'
+
+          config interface 'lan'
+              option device 'br-lan'
+              option proto 'static'
+              option ipaddr '192.168.1.1'
+              option netmask '255.255.255.0'
           EOF
 
       - name: Load Custom Config
