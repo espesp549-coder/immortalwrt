@@ -7,6 +7,7 @@ env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-23.05
   TZ: Asia/Baghdad
+  DTS_PATH: target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts
 
 jobs:
   build:
@@ -42,20 +43,26 @@ jobs:
     - name: Auto Patch PCIe DTS Node
       working-directory: /workdir/openwrt
       run: |
-        echo "Searching and patching 360T6M DTS files..."
-        find target/linux/ramips/ -type f \( -name "*360t6m*.dts" -o -name "*360*.dts" \) | while read -r dts_file; do
-          if grep -q "pcie@1e140000" "$dts_file"; then
-            sed -i '/pcie@1e140000 {/a \                resets = <0x05 0x18 0x05 0x19 0x05 0x1a>;\n                reset-names = "pcie0\\0pcie1\\0pcie2";' "$dts_file"
-            echo "Successfully patched: $dts_file"
+        if [ -f "$DTS_PATH" ]; then
+          sed -i '/pcie@1e140000 {/a \                resets = <0x05 0x18 0x05 0x19 0x05 0x1a>;\n                reset-names = "pcie0\\0pcie1\\0pcie2";' "$DTS_PATH"
+          echo "Successfully patched direct path: $DTS_PATH"
+        else
+          echo "File $DTS_PATH not found, searching automatically..."
+          TARGET_FILE=$(find target/linux/ramips/ -iname "*360t6m*.dts" | head -n 1)
+          if [ -n "$TARGET_FILE" ]; then
+            sed -i '/pcie@1e140000 {/a \                resets = <0x05 0x18 0x05 0x19 0x05 0x1a>;\n                reset-names = "pcie0\\0pcie1\\0pcie2";' "$TARGET_FILE"
+            echo "Successfully patched found file: $TARGET_FILE"
+          else
+            echo "Error: DTS file not found."
+            exit 1
           fi
-        done
+        fi
 
     - name: Verify DTS Patching (Safety Check)
       working-directory: /workdir/openwrt
       run: |
-        echo "Verifying if PCIe resets exist in DTS..."
-        DTS_FILE=$(find target/linux/ramips/ -type f \( -name "*360t6m*.dts" -o -name "*360*.dts" \) | head -n 1)
-        if grep -q 'reset-names = "pcie0' "$DTS_FILE"; then
+        echo "Verifying PCIe resets in DTS..."
+        if grep -q 'reset-names = "pcie0' "$DTS_PATH" 2>/dev/null || grep -q 'reset-names = "pcie0' target/linux/ramips/dts/*360*.dts 2>/dev/null; then
           echo "=========================================="
           echo "SUCCESS: PCIe Resets correctly injected!"
           echo "=========================================="
