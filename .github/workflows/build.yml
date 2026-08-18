@@ -37,19 +37,60 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Fix PCIe Node in DTS
+      - name: Fix 360T6M PCIe Reset in DTS
         run: |
-          DTS_FILE="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
-          if [ -f "$DTS_FILE" ]; then
-            sed -i '/&pcie {/a \ \ status = "okay";' $DTS_FILE
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+
+          if [ ! -f "$DTS" ]; then
+            echo "ERROR: DTS file not found: $DTS"
+            exit 1
           fi
 
-      - name: Inject uImage Device Definition
-        run: |
-          sed -i '/define Device\/360_t6m/,/endef/d' target/linux/ramips/image/mt7621.mk
-          sed -i '/TARGET_DEVICES += 360_t6m/d' target/linux/ramips/image/mt7621.mk
+          echo "===== PCIe DTS BEFORE PATCH ====="
+          grep -n -A25 -B5 'pcie@1e140000' "$DTS" || true
 
-          cat << 'EOF' >> target/linux/ramips/image/mt7621.mk
+          python3 - "$DTS" <<'PY'
+          import sys
+          from pathlib import Path
+
+          dts = Path(sys.argv[1])
+          text = dts.read_text()
+
+          # Remove old GPIO based PCIe reset if present.
+          text = text.replace(
+              'reset-gpios = <0x16 0x13 0x01>;',
+              ''
+          )
+
+          old = '''status = "okay";
+                  #interrupt-cells = <0x01>;'''
+
+          new = '''status = "okay";
+                  resets = <0x05 0x18>, <0x05 0x19>, <0x05 0x1a>;
+                  reset-names = "pcie0", "pcie1", "pcie2";
+                  #interrupt-cells = <0x01>;'''
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'reset-names = "pcie0", "pcie1", "pcie2";' not in text:
+              raise SystemExit(
+                  "ERROR: Could not find the expected PCIe node structure"
+              )
+
+          dts.write_text(text)
+          PY
+
+          echo "===== PCIe DTS AFTER PATCH ====="
+          grep -n -A25 -B5 'pcie@1e140000' "$DTS" || true
+
+      - name: Inject 360T6M Device Definition
+        run: |
+          FILE="target/linux/ramips/image/mt7621.mk"
+
+          sed -i '/define Device\/360_t6m/,/endef/d' "$FILE"
+          sed -i '/TARGET_DEVICES += 360_t6m/d' "$FILE"
+
+          cat << 'EOF' >> "$FILE"
 
           define Device/360_t6m
             $(Device/nand)
@@ -68,12 +109,14 @@ jobs:
             IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
             IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
           endef
+
           TARGET_DEVICES += 360_t6m
           EOF
 
-      - name: Inject Raw Force Network Script
+      - name: Configure Network
         run: |
           mkdir -p files/etc/config
+
           cat << 'EOF' > files/etc/config/network
           config interface 'loopback'
               option device 'lo'
@@ -91,20 +134,30 @@ jobs:
               option netmask '255.255.255.0'
           EOF
 
+      - name: Configure SSH
+        run: |
           mkdir -p files/etc
-          cat << 'EOF' > files/etc/rc.local
-          # Force raw interfaces up bypassing UCI/netifd
-          ip link set eth0 up 2>/dev/null
-          ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
-          ip link set eth1 up 2>/dev/null
-          ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
 
-          # Force start Dropbear SSH
-          dropbear -p 22 -B
+          cat << 'EOF' > files/etc/rc.local
+          #!/bin/sh
+
+          ip link set eth0 up 2>/dev/null || true
+          ip addr add 192.168.1.1/24 dev eth0 2>/dev/null || true
 
           exit 0
           EOF
+
           chmod +x files/etc/rc.local
+
+      - name: Configure Kernel Reset Controller
+        run: |
+          for cfg in target/linux/ramips/mt7621/config-*; do
+            if [ -f "$cfg" ]; then
+              grep -q '^CONFIG_RESET_CONTROLLER=' "$cfg" || echo 'CONFIG_RESET_CONTROLLER=y' >> "$cfg"
+              grep -q '^CONFIG_RESET_MT7621=' "$cfg" || echo 'CONFIG_RESET_MT7621=y' >> "$cfg"
+              grep -q '^CONFIG_MFD_SYSCON=' "$cfg" || echo 'CONFIG_MFD_SYSCON=y' >> "$cfg"
+            fi
+          done
 
       - name: Load Custom Config
         run: |
@@ -114,13 +167,15 @@ jobs:
           CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
           CONFIG_LEGACY_IMAGE_FORMAT=y
 
-          # UBI/UBIFS support
+          CONFIG_RESET_CONTROLLER=y
+          CONFIG_RESET_MT7621=y
+          CONFIG_MFD_SYSCON=y
+
           CONFIG_MTD_UBI=y
           CONFIG_MTD_UBI_BEB_LIMIT=20
           CONFIG_MTD_UBI_FASTMAP=y
           CONFIG_UBIFS_FS=y
 
-          # Networking & TProxy
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-tun=y
           CONFIG_PACKAGE_iptables-nft=y
@@ -128,20 +183,36 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
 
-          # Wi-Fi Drivers (MT7915)
           CONFIG_PACKAGE_kmod-mt76-connac=y
           CONFIG_PACKAGE_kmod-mt76-core=y
           CONFIG_PACKAGE_kmod-mt7915-firmware=y
           CONFIG_PACKAGE_kmod-mt7915e=y
           CONFIG_PACKAGE_wpad-openssl=y
 
-          # LuCI UI & SSH
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
           CONFIG_PACKAGE_dropbear=y
           EOF
 
           make defconfig
+
+      - name: Verify Final DTS
+        run: |
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+
+          echo "===== FINAL PCIe CONFIGURATION ====="
+          grep -n -A25 -B5 'pcie@1e140000' "$DTS" || true
+
+          echo "===== CHECK FOR OLD GPIO RESET ====="
+          if grep -q 'reset-gpios = <0x16 0x13 0x01>;' "$DTS"; then
+            echo "ERROR: Old PCIe reset GPIO is still present"
+            exit 1
+          else
+            echo "OK: Old PCIe reset GPIO removed"
+          fi
+
+          echo "===== CHECK RESET CONTROLLER ====="
+          grep -n 'reset-names = "pcie0", "pcie1", "pcie2";' "$DTS"
 
       - name: Download package sources
         run: |
@@ -150,13 +221,18 @@ jobs:
 
       - name: Build Firmware
         run: |
-          make -j$(nproc) || make -j1 V=s
+          make -j$(nproc) V=s
+
+      - name: List Firmware
+        if: success()
+        run: |
+          echo "===== FIRMWARE FILES ====="
+          find bin/targets/ramips/mt7621/ -maxdepth 1 -type f -print
 
       - name: Upload Firmware
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-360T6M-Clean-${{ github.run_number }}
+          name: ImmortalWrt-360T6M-PCIe-Fixed-${{ github.run_number }}
           path: |
             bin/targets/ramips/mt7621/*360*
-            
