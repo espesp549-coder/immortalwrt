@@ -50,6 +50,22 @@ jobs:
           fi
         done
 
+    - name: Verify DTS Patching (Safety Check)
+      working-directory: /workdir/openwrt
+      run: |
+        echo "Verifying if PCIe resets exist in DTS..."
+        DTS_FILE=$(find target/linux/ramips/ -type f \( -name "*360t6m*.dts" -o -name "*360*.dts" \) | head -n 1)
+        if grep -q 'reset-names = "pcie0' "$DTS_FILE"; then
+          echo "=========================================="
+          echo "SUCCESS: PCIe Resets correctly injected!"
+          echo "=========================================="
+        else
+          echo "=========================================="
+          echo "ERROR: Patch failed! Stopping build early."
+          echo "=========================================="
+          exit 1
+        fi
+
     - name: Generate Config for 360T6M
       working-directory: /workdir/openwrt
       run: |
