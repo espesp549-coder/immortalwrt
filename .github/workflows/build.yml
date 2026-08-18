@@ -46,6 +46,21 @@ jobs:
         cp target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
         echo "Custom DTS applied successfully!"
 
+    - name: Verify DTS Patching (Safety Check)
+      working-directory: /workdir/openwrt
+      run: |
+        echo "Verifying PCIe resets in target DTS..."
+        if grep -q 'reset-names = "pcie0' target/linux/ramips/dts/mt7621_qihoo_360t6m.dts; then
+          echo "=========================================="
+          echo "SUCCESS: PCIe Resets correctly verified!"
+          echo "=========================================="
+        else
+          echo "=========================================="
+          echo "ERROR: Verification failed! Resets missing."
+          echo "=========================================="
+          exit 1
+        fi
+
     - name: Generate Config for 360T6M
       working-directory: /workdir/openwrt
       run: |
