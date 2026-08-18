@@ -4,10 +4,9 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-23.05
+  REPO_URL: https://github.com/espesp549-coder/immortalwrt
+  REPO_BRANCH: master
   TZ: Asia/Baghdad
-  DTS_PATH: target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts
 
 jobs:
   build:
@@ -28,7 +27,7 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$USER /workdir
 
-    - name: Clone ImmortalWrt Source
+    - name: Clone Custom ImmortalWrt Source
       working-directory: /workdir
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
@@ -40,38 +39,12 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Auto Patch PCIe DTS Node
+    - name: Link Fixed DTS to Build System Target
       working-directory: /workdir/openwrt
       run: |
-        if [ -f "$DTS_PATH" ]; then
-          sed -i '/pcie@1e140000 {/a \                resets = <0x05 0x18 0x05 0x19 0x05 0x1a>;\n                reset-names = "pcie0\\0pcie1\\0pcie2";' "$DTS_PATH"
-          echo "Successfully patched direct path: $DTS_PATH"
-        else
-          echo "File $DTS_PATH not found, searching automatically..."
-          TARGET_FILE=$(find target/linux/ramips/ -iname "*360t6m*.dts" | head -n 1)
-          if [ -n "$TARGET_FILE" ]; then
-            sed -i '/pcie@1e140000 {/a \                resets = <0x05 0x18 0x05 0x19 0x05 0x1a>;\n                reset-names = "pcie0\\0pcie1\\0pcie2";' "$TARGET_FILE"
-            echo "Successfully patched found file: $TARGET_FILE"
-          else
-            echo "Error: DTS file not found."
-            exit 1
-          fi
-        fi
-
-    - name: Verify DTS Patching (Safety Check)
-      working-directory: /workdir/openwrt
-      run: |
-        echo "Verifying PCIe resets in DTS..."
-        if grep -q 'reset-names = "pcie0' "$DTS_PATH" 2>/dev/null || grep -q 'reset-names = "pcie0' target/linux/ramips/dts/*360*.dts 2>/dev/null; then
-          echo "=========================================="
-          echo "SUCCESS: PCIe Resets correctly injected!"
-          echo "=========================================="
-        else
-          echo "=========================================="
-          echo "ERROR: Patch failed! Stopping build early."
-          echo "=========================================="
-          exit 1
-        fi
+        echo "Linking custom DTS file..."
+        cp target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
+        echo "Custom DTS applied successfully!"
 
     - name: Generate Config for 360T6M
       working-directory: /workdir/openwrt
