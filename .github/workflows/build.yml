@@ -11,22 +11,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Branch
+      - name: Free Disk Space
         run: |
-          git branch --show-current
-          git log -1 --oneline
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -a -f
+          sudo apt-get clean
+          df -h
 
       - name: Initialization Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd file wget
+          sudo apt-get install -y \
+            build-essential \
+            libncurses5-dev \
+            gawk \
+            git \
+            gettext \
+            libssl-dev \
+            xsltproc \
+            zlib1g-dev \
+            ecj \
+            fastjar \
+            java-common \
+            libelf-dev \
+            libfuse-dev \
+            libsnmp-dev \
+            python3-setuptools \
+            rsync \
+            subversion \
+            swig \
+            unzip \
+            zstd \
+            file \
+            wget
 
-      - name: Download packages & Update feeds
+      - name: Update Feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Inject uImage Device Definition
+      - name: Inject 360T6M Device
         run: |
           sed -i '/define Device\/360_t6m/,/endef/d' target/linux/ramips/image/mt7621.mk
           sed -i '/TARGET_DEVICES += 360_t6m/d' target/linux/ramips/image/mt7621.mk
@@ -45,33 +72,76 @@ jobs:
             PAGESIZE := 2048
             KERNEL_LOADADDR := 0x80001000
             KERNEL := kernel-bin | append-dtb | lzma | uImage lzma
-            DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-openssl luci luci-ssl dropbear
+            DEVICE_PACKAGES := \
+              kmod-mt76-connac \
+              kmod-mt76-core \
+              kmod-mt7915-firmware \
+              kmod-mt7915e \
+              kmod-tun \
+              kmod-nft-tproxy \
+              wpad-openssl \
+              luci \
+              luci-ssl \
+              dropbear
             IMAGES += factory.bin
             IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
             IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
           endef
+
           TARGET_DEVICES += 360_t6m
           EOF
 
-      - name: Patch PCIe Resets & WiFi Node in DTS
+      - name: Patch 360T6M DTS
         run: |
-          cat << 'EOF' >> target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
+          python3 - << 'PY'
+          from pathlib import Path
 
-          &pcie {
-          	status = "okay";
-          	/delete-property/ reset-gpios;
-          	resets = <&rstctrl 28>, <&rstctrl 29>, <&rstctrl 30>;
-          	reset-names = "pcie0", "pcie1", "pcie2";
+          p = Path("target/linux/ramips/dts/mt7621_qihoo_360t6m.dts")
+          s = p.read_text()
+
+          patch = r'''
+
+          /* 360 T6M PCIe reset fix */
+          &{/pcie@1e140000} {
+              status = "okay";
+
+              /delete-property/ reset-gpios;
+
+              resets = <&rstctrl 28>,
+                       <&rstctrl 29>,
+                       <&rstctrl 30>;
+
+              reset-names = "pcie0",
+                            "pcie1",
+                            "pcie2";
           };
+          '''
 
-          &pcie1 {
-          	status = "okay";
-          };
-          EOF
+          if "360 T6M PCIe reset fix" not in s:
+              s += patch
 
-      - name: Inject Raw Force Network Script
+          p.write_text(s)
+          PY
+
+      - name: Patch Kernel Reset Configuration
+        run: |
+          for cfg in target/linux/ramips/mt7621/config-*; do
+            [ -f "$cfg" ] || continue
+
+            grep -qxF 'CONFIG_RESET_CONTROLLER=y' "$cfg" || \
+              echo 'CONFIG_RESET_CONTROLLER=y' >> "$cfg"
+
+            grep -qxF 'CONFIG_RESET_MT7621=y' "$cfg" || \
+              echo 'CONFIG_RESET_MT7621=y' >> "$cfg"
+
+            grep -qxF 'CONFIG_MFD_SYSCON=y' "$cfg" || \
+              echo 'CONFIG_MFD_SYSCON=y' >> "$cfg"
+          done
+
+      - name: Configure Network
         run: |
           mkdir -p files/etc/config
+
           cat << 'EOF' > files/etc/config/network
           config interface 'loopback'
               option device 'lo'
@@ -89,41 +159,25 @@ jobs:
               option netmask '255.255.255.0'
           EOF
 
-          mkdir -p files/etc
-          cat << 'EOF' > files/etc/rc.local
-          # Force raw interfaces up bypassing UCI/netifd
-          ip link set eth0 up 2>/dev/null
-          ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
-          ip link set eth1 up 2>/dev/null
-          ip addr add 192.168.1.1/24 dev eth1 2>/dev/null
-
-          # Force start Dropbear SSH
-          dropbear -p 22 -B
-
-          exit 0
-          EOF
-          chmod +x files/etc/rc.local
-
       - name: Load Custom Config
         run: |
           cat << 'EOF' > .config
+
           CONFIG_TARGET_ramips=y
           CONFIG_TARGET_ramips_mt7621=y
           CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
+
           CONFIG_LEGACY_IMAGE_FORMAT=y
 
-          # Kernel Reset Controller (Fixes PCIe & MT7530 Switch)
           CONFIG_RESET_CONTROLLER=y
           CONFIG_RESET_MT7621=y
           CONFIG_MFD_SYSCON=y
 
-          # UBI/UBIFS support
           CONFIG_MTD_UBI=y
           CONFIG_MTD_UBI_BEB_LIMIT=20
           CONFIG_MTD_UBI_FASTMAP=y
           CONFIG_UBIFS_FS=y
 
-          # Networking & TProxy
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-tun=y
           CONFIG_PACKAGE_iptables-nft=y
@@ -131,22 +185,26 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
 
-          # Wi-Fi Drivers (MT7915)
           CONFIG_PACKAGE_kmod-mt76-connac=y
           CONFIG_PACKAGE_kmod-mt76-core=y
           CONFIG_PACKAGE_kmod-mt7915-firmware=y
           CONFIG_PACKAGE_kmod-mt7915e=y
           CONFIG_PACKAGE_wpad-openssl=y
 
-          # LuCI UI & SSH
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
           CONFIG_PACKAGE_dropbear=y
+
           EOF
 
           make defconfig
 
-      - name: Download package sources
+      - name: Verify DTS
+        run: |
+          grep -n -A15 -B5 "360 T6M PCIe reset fix" \
+            target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
+
+      - name: Download Package Sources
         run: |
           make download -j8
           find dl -size -1024c -exec rm -f {} \;
@@ -162,4 +220,4 @@ jobs:
           name: ImmortalWrt-360T6M-Fixed-${{ github.run_number }}
           path: |
             bin/targets/ramips/mt7621/*360*
-            
+            bin/targets/ramips/mt7621/sha256sums
