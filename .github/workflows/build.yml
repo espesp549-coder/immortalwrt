@@ -37,6 +37,13 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Fix PCIe Node in DTS
+        run: |
+          DTS_FILE="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+          if [ -f "$DTS_FILE" ]; then
+            sed -i '/&pcie {/a \ \ status = "okay";' $DTS_FILE
+          fi
+
       - name: Inject uImage Device Definition
         run: |
           sed -i '/define Device\/360_t6m/,/endef/d' target/linux/ramips/image/mt7621.mk
