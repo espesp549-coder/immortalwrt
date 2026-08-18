@@ -67,6 +67,7 @@ jobs:
         echo "CONFIG_TARGET_ramips=y" > .config
         echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
         echo "CONFIG_TARGET_ramips_mt7621_DEVICE_360_360t6m=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_INITRAMFS=y" >> .config
         echo "CONFIG_PACKAGE_kmod-mt7915e=y" >> .config
         echo "CONFIG_PACKAGE_kmod-mt76-core=y" >> .config
         make defconfig
@@ -85,6 +86,8 @@ jobs:
     - name: Upload Firmware Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ImmortalWrt_360T6M_Fixed
-        path: /workdir/openwrt/bin/targets/ramips/mt7621/*sysupgrade.bin
-        
+        name: ImmortalWrt_360T6M_All_Files
+        path: |
+          /workdir/openwrt/bin/targets/ramips/mt7621/*.bin
+          /workdir/openwrt/bin/targets/ramips/mt7621/manifest
+          
