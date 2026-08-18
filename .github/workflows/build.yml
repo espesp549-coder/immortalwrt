@@ -1,252 +1,79 @@
-name: Build ImmortalWrt for 360T6M
+name: Build ImmortalWrt for Qihoo 360T6M
 
 on:
   workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-23.05
+  TZ: Asia/Baghdad
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Setup Swap Space
-        run: |
-          sudo swapoff -a || true
-          sudo rm -f /swapfile
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-          df -h
+    - name: Prepare Build Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install build-essential clang flex bison gstreamer1.0-plugins-base gstreamer1.0-tools libffi-dev libgdk-pixbuf2.0-dev libglib2.0-dev libgmp-dev libltdl-dev libncurses-dev libncurses5-dev libpack-dev libpcre3-dev libssl-dev libxml2-dev openssl python3-dev python3-setuptools rsync subversion swig time xsltproc zlib1g-dev
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$USER /workdir
 
-      - name: Verify Branch
-        run: |
-          git branch --show-current
-          git log -1 --oneline
+    - name: Clone ImmortalWrt Source
+      working-directory: /workdir
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: Initialization Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libncurses5-dev \
-            gawk \
-            git \
-            gettext \
-            libssl-dev \
-            xsltproc \
-            zlib1g-dev \
-            ecj \
-            fastjar \
-            java-common \
-            libelf-dev \
-            libfuse-dev \
-            libsnmp-dev \
-            python3-setuptools \
-            rsync \
-            subversion \
-            swig \
-            unzip \
-            zstd \
-            file \
-            wget \
-            ccache \
-            cmake
+    - name: Update & Install Feeds
+      working-directory: /workdir/openwrt
+      run: |
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      - name: Update Feeds
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Verify Custom DTS
-        run: |
-          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts"
-
-          if [ ! -f "$DTS" ]; then
-            echo "ERROR: Custom DTS not found:"
-            echo "$DTS"
-            echo
-            echo "Available 360 DTS files:"
-            find target/linux/ramips/dts -maxdepth 1 -type f -iname '*360*' -print
-            exit 1
+    - name: Auto Patch PCIe DTS Node
+      working-directory: /workdir/openwrt
+      run: |
+        echo "Searching and patching 360T6M DTS files..."
+        find target/linux/ramips/ -type f \( -name "*360t6m*.dts" -o -name "*360*.dts" \) | while read -r dts_file; do
+          if grep -q "pcie@1e140000" "$dts_file"; then
+            sed -i '/pcie@1e140000 {/a \                resets = <0x05 0x18 0x05 0x19 0x05 0x1a>;\n                reset-names = "pcie0\\0pcie1\\0pcie2";' "$dts_file"
+            echo "Successfully patched: $dts_file"
           fi
+        done
 
-          echo "===== USING CUSTOM DTS ====="
-          echo "$DTS"
-          echo
-          ls -lh "$DTS"
-          echo
-          grep -n -A30 -B5 'pcie@1e140000' "$DTS" || true
-          echo
-          grep -n 'reset-names' "$DTS" || true
-          grep -n 'resets =' "$DTS" || true
+    - name: Generate Config for 360T6M
+      working-directory: /workdir/openwrt
+      run: |
+        echo "CONFIG_TARGET_ramips=y" > .config
+        echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
+        echo "CONFIG_TARGET_ramips_mt7621_DEVICE_360_360t6m=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt7915e=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt76-core=y" >> .config
+        make defconfig
 
-      - name: Inject 360T6M Device Definition
-        run: |
-          FILE="target/linux/ramips/image/mt7621.mk"
+    - name: Download Packages
+      working-directory: /workdir/openwrt
+      run: |
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
 
-          sed -i '/define Device\/360_t6m/,/endef/d' "$FILE"
-          sed -i '/TARGET_DEVICES += 360_t6m/d' "$FILE"
+    - name: Compile Firmware
+      working-directory: /workdir/openwrt
+      run: |
+        make -j$(nproc) || make -j1 V=s
 
-          cat << 'EOF' >> "$FILE"
-
-          define Device/360_t6m
-            $(Device/nand)
-            DEVICE_VENDOR := 360
-            DEVICE_MODEL := T6M
-            DEVICE_DTS := mt7621_qihoo_360t6m_fixed
-            SOC := mt7621
-            KERNEL_SIZE := 4096k
-            IMAGE_SIZE := 124416k
-            BLOCKSIZE := 128k
-            PAGESIZE := 2048
-            KERNEL_LOADADDR := 0x80001000
-            KERNEL := kernel-bin | append-dtb | lzma | uImage lzma
-            DEVICE_PACKAGES := kmod-mt76-connac kmod-mt76-core kmod-mt7915-firmware kmod-mt7915e kmod-tun kmod-nft-tproxy wpad-openssl luci luci-ssl dropbear
-            IMAGES += factory.bin
-            IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-ubi | check-size
-            IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-          endef
-
-          TARGET_DEVICES += 360_t6m
-          EOF
-
-      - name: Verify Device Definition
-        run: |
-          echo "===== 360T6M DEVICE DEFINITION ====="
-          grep -n -A25 -B2 'define Device/360_t6m' \
-            target/linux/ramips/image/mt7621.mk
-
-      - name: Configure Network
-        run: |
-          mkdir -p files/etc/config
-
-          cat << 'EOF' > files/etc/config/network
-          config interface 'loopback'
-              option device 'lo'
-              option proto 'static'
-              option ipaddr '127.0.0.1'
-              option netmask '255.0.0.0'
-
-          config globals 'globals'
-              option ula_prefix 'fd00::/64'
-
-          config interface 'lan'
-              option device 'eth0'
-              option proto 'static'
-              option ipaddr '192.168.1.1'
-              option netmask '255.255.255.0'
-          EOF
-
-      - name: Configure SSH
-        run: |
-          mkdir -p files/etc
-
-          cat << 'EOF' > files/etc/rc.local
-          #!/bin/sh
-
-          ip link set eth0 up 2>/dev/null || true
-          ip addr add 192.168.1.1/24 dev eth0 2>/dev/null || true
-
-          exit 0
-          EOF
-
-          chmod +x files/etc/rc.local
-
-      - name: Configure Kernel Reset Controller
-        run: |
-          for cfg in target/linux/ramips/mt7621/config-*; do
-            if [ -f "$cfg" ]; then
-              grep -q '^CONFIG_RESET_CONTROLLER=' "$cfg" || \
-                echo 'CONFIG_RESET_CONTROLLER=y' >> "$cfg"
-
-              grep -q '^CONFIG_RESET_MT7621=' "$cfg" || \
-                echo 'CONFIG_RESET_MT7621=y' >> "$cfg"
-
-              grep -q '^CONFIG_MFD_SYSCON=' "$cfg" || \
-                echo 'CONFIG_MFD_SYSCON=y' >> "$cfg"
-            fi
-          done
-
-      - name: Load Custom Config
-        run: |
-          cat << 'EOF' > .config
-          CONFIG_TARGET_ramips=y
-          CONFIG_TARGET_ramips_mt7621=y
-          CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
-          CONFIG_LEGACY_IMAGE_FORMAT=y
-
-          CONFIG_RESET_CONTROLLER=y
-          CONFIG_RESET_MT7621=y
-          CONFIG_MFD_SYSCON=y
-
-          CONFIG_MTD_UBI=y
-          CONFIG_MTD_UBI_BEB_LIMIT=20
-          CONFIG_MTD_UBI_FASTMAP=y
-          CONFIG_UBIFS_FS=y
-
-          CONFIG_PACKAGE_kmod-nft-tproxy=y
-          CONFIG_PACKAGE_kmod-tun=y
-          CONFIG_PACKAGE_iptables-nft=y
-          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
-          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
-          CONFIG_NF_CONNTRACK_MARK=y
-
-          CONFIG_PACKAGE_kmod-mt76-connac=y
-          CONFIG_PACKAGE_kmod-mt76-core=y
-          CONFIG_PACKAGE_kmod-mt7915-firmware=y
-          CONFIG_PACKAGE_kmod-mt7915e=y
-          CONFIG_PACKAGE_wpad-openssl=y
-
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-          CONFIG_PACKAGE_dropbear=y
-          EOF
-
-          make defconfig
-
-      - name: Final DTS Verification
-        run: |
-          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts"
-
-          echo "======================================"
-          echo "FINAL DTS:"
-          echo "$DTS"
-          echo "======================================"
-
-          test -f "$DTS"
-
-          echo
-          echo "===== PCIe NODE ====="
-          grep -n -A40 -B5 'pcie@1e140000' "$DTS" || true
-
-          echo
-          echo "===== RESET CONFIGURATION ====="
-          grep -n 'resets =' "$DTS" || true
-          grep -n 'reset-names' "$DTS" || true
-
-      - name: Download Package Sources
-        run: |
-          make download -j8
-          find dl -size -1024c -exec rm -f {} \;
-
-      - name: Build Firmware
-        run: |
-          make -j$(nproc) V=s
-
-      - name: List Firmware
-        if: success()
-        run: |
-          echo "===== FIRMWARE FILES ====="
-          find bin/targets/ramips/mt7621/ -maxdepth 1 -type f -print
-
-      - name: Upload Firmware
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt-360T6M-Custom-DTS-${{ github.run_number }}
-          path: |
-            bin/targets/ramips/mt7621/*360*
+    - name: Upload Firmware Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImmortalWrt_360T6M_Fixed
+        path: /workdir/openwrt/bin/targets/ramips/mt7621/*sysupgrade.bin
+        
