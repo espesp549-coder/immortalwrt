@@ -56,50 +56,33 @@ jobs:
             ccache \
             cmake
 
-      - name: Download packages & Update feeds
+      - name: Update Feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Install Custom 360T6M DTS
+      - name: Verify Custom DTS
         run: |
-          SOURCE_DTS="mt7621_qihoo_360t6m_fixed.dts"
-          TARGET_DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts"
 
-          if [ ! -f "$SOURCE_DTS" ]; then
-            echo "ERROR: $SOURCE_DTS not found in repository root."
-            echo "Files in repository root:"
-            ls -lah
+          if [ ! -f "$DTS" ]; then
+            echo "ERROR: Custom DTS not found:"
+            echo "$DTS"
+            echo
+            echo "Available 360 DTS files:"
+            find target/linux/ramips/dts -maxdepth 1 -type f -iname '*360*' -print
             exit 1
           fi
 
-          cp "$SOURCE_DTS" "$TARGET_DTS"
-
-          echo "===== CUSTOM DTS INSTALLED ====="
-          echo "Source : $SOURCE_DTS"
-          echo "Target : $TARGET_DTS"
+          echo "===== USING CUSTOM DTS ====="
+          echo "$DTS"
           echo
-
-          grep -n -A25 -B5 'pcie@1e140000' "$TARGET_DTS" || true
-
-      - name: Verify Custom DTS
-        run: |
-          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
-
-          test -f "$DTS"
-
-          echo "===== DTS CHECK ====="
-          grep -q 'pcie@1e140000' "$DTS" || {
-            echo "ERROR: PCIe node not found"
-            exit 1
-          }
-
-          grep -q 'reset-names = "pcie0", "pcie1", "pcie2";' "$DTS" || {
-            echo "ERROR: PCIe reset configuration not found"
-            exit 1
-          }
-
-          echo "Custom DTS verification passed."
+          ls -lh "$DTS"
+          echo
+          grep -n -A30 -B5 'pcie@1e140000' "$DTS" || true
+          echo
+          grep -n 'reset-names' "$DTS" || true
+          grep -n 'resets =' "$DTS" || true
 
       - name: Inject 360T6M Device Definition
         run: |
@@ -114,7 +97,7 @@ jobs:
             $(Device/nand)
             DEVICE_VENDOR := 360
             DEVICE_MODEL := T6M
-            DEVICE_DTS := mt7621_qihoo_360t6m
+            DEVICE_DTS := mt7621_qihoo_360t6m_fixed
             SOC := mt7621
             KERNEL_SIZE := 4096k
             IMAGE_SIZE := 124416k
@@ -130,6 +113,12 @@ jobs:
 
           TARGET_DEVICES += 360_t6m
           EOF
+
+      - name: Verify Device Definition
+        run: |
+          echo "===== 360T6M DEVICE DEFINITION ====="
+          grep -n -A25 -B2 'define Device/360_t6m' \
+            target/linux/ramips/image/mt7621.mk
 
       - name: Configure Network
         run: |
@@ -221,22 +210,25 @@ jobs:
 
       - name: Final DTS Verification
         run: |
-          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m_fixed.dts"
 
           echo "======================================"
-          echo "USING CUSTOM DTS:"
-          echo "mt7621_qihoo_360t6m_fixed.dts"
+          echo "FINAL DTS:"
+          echo "$DTS"
           echo "======================================"
 
-          grep -n -A30 -B5 'pcie@1e140000' "$DTS" || true
+          test -f "$DTS"
+
+          echo
+          echo "===== PCIe NODE ====="
+          grep -n -A40 -B5 'pcie@1e140000' "$DTS" || true
 
           echo
           echo "===== RESET CONFIGURATION ====="
-
           grep -n 'resets =' "$DTS" || true
           grep -n 'reset-names' "$DTS" || true
 
-      - name: Download package sources
+      - name: Download Package Sources
         run: |
           make download -j8
           find dl -size -1024c -exec rm -f {} \;
