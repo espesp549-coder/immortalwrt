@@ -30,58 +30,76 @@ jobs:
       - name: Initialization Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd file wget ccache cmake
+          sudo apt-get install -y \
+            build-essential \
+            libncurses5-dev \
+            gawk \
+            git \
+            gettext \
+            libssl-dev \
+            xsltproc \
+            zlib1g-dev \
+            ecj \
+            fastjar \
+            java-common \
+            libelf-dev \
+            libfuse-dev \
+            libsnmp-dev \
+            python3-setuptools \
+            rsync \
+            subversion \
+            swig \
+            unzip \
+            zstd \
+            file \
+            wget \
+            ccache \
+            cmake
 
       - name: Download packages & Update feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Fix 360T6M PCIe Reset in DTS
+      - name: Install Custom 360T6M DTS
         run: |
-          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+          SOURCE_DTS="mt7621_qihoo_360t6m_fixed.dts"
+          TARGET_DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
 
-          if [ ! -f "$DTS" ]; then
-            echo "ERROR: DTS file not found: $DTS"
+          if [ ! -f "$SOURCE_DTS" ]; then
+            echo "ERROR: $SOURCE_DTS not found in repository root."
+            echo "Files in repository root:"
+            ls -lah
             exit 1
           fi
 
-          echo "===== PCIe DTS BEFORE PATCH ====="
-          grep -n -A25 -B5 'pcie@1e140000' "$DTS" || true
+          cp "$SOURCE_DTS" "$TARGET_DTS"
 
-          python3 - "$DTS" <<'PY'
-          import sys
-          from pathlib import Path
+          echo "===== CUSTOM DTS INSTALLED ====="
+          echo "Source : $SOURCE_DTS"
+          echo "Target : $TARGET_DTS"
+          echo
 
-          dts = Path(sys.argv[1])
-          text = dts.read_text()
+          grep -n -A25 -B5 'pcie@1e140000' "$TARGET_DTS" || true
 
-          # Remove old GPIO based PCIe reset if present.
-          text = text.replace(
-              'reset-gpios = <0x16 0x13 0x01>;',
-              ''
-          )
+      - name: Verify Custom DTS
+        run: |
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
 
-          old = '''status = "okay";
-                  #interrupt-cells = <0x01>;'''
+          test -f "$DTS"
 
-          new = '''status = "okay";
-                  resets = <0x05 0x18>, <0x05 0x19>, <0x05 0x1a>;
-                  reset-names = "pcie0", "pcie1", "pcie2";
-                  #interrupt-cells = <0x01>;'''
+          echo "===== DTS CHECK ====="
+          grep -q 'pcie@1e140000' "$DTS" || {
+            echo "ERROR: PCIe node not found"
+            exit 1
+          }
 
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif 'reset-names = "pcie0", "pcie1", "pcie2";' not in text:
-              raise SystemExit(
-                  "ERROR: Could not find the expected PCIe node structure"
-              )
+          grep -q 'reset-names = "pcie0", "pcie1", "pcie2";' "$DTS" || {
+            echo "ERROR: PCIe reset configuration not found"
+            exit 1
+          }
 
-          dts.write_text(text)
-          PY
-
-          echo "===== PCIe DTS AFTER PATCH ====="
-          grep -n -A25 -B5 'pcie@1e140000' "$DTS" || true
+          echo "Custom DTS verification passed."
 
       - name: Inject 360T6M Device Definition
         run: |
@@ -153,9 +171,14 @@ jobs:
         run: |
           for cfg in target/linux/ramips/mt7621/config-*; do
             if [ -f "$cfg" ]; then
-              grep -q '^CONFIG_RESET_CONTROLLER=' "$cfg" || echo 'CONFIG_RESET_CONTROLLER=y' >> "$cfg"
-              grep -q '^CONFIG_RESET_MT7621=' "$cfg" || echo 'CONFIG_RESET_MT7621=y' >> "$cfg"
-              grep -q '^CONFIG_MFD_SYSCON=' "$cfg" || echo 'CONFIG_MFD_SYSCON=y' >> "$cfg"
+              grep -q '^CONFIG_RESET_CONTROLLER=' "$cfg" || \
+                echo 'CONFIG_RESET_CONTROLLER=y' >> "$cfg"
+
+              grep -q '^CONFIG_RESET_MT7621=' "$cfg" || \
+                echo 'CONFIG_RESET_MT7621=y' >> "$cfg"
+
+              grep -q '^CONFIG_MFD_SYSCON=' "$cfg" || \
+                echo 'CONFIG_MFD_SYSCON=y' >> "$cfg"
             fi
           done
 
@@ -196,23 +219,22 @@ jobs:
 
           make defconfig
 
-      - name: Verify Final DTS
+      - name: Final DTS Verification
         run: |
           DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
 
-          echo "===== FINAL PCIe CONFIGURATION ====="
-          grep -n -A25 -B5 'pcie@1e140000' "$DTS" || true
+          echo "======================================"
+          echo "USING CUSTOM DTS:"
+          echo "mt7621_qihoo_360t6m_fixed.dts"
+          echo "======================================"
 
-          echo "===== CHECK FOR OLD GPIO RESET ====="
-          if grep -q 'reset-gpios = <0x16 0x13 0x01>;' "$DTS"; then
-            echo "ERROR: Old PCIe reset GPIO is still present"
-            exit 1
-          else
-            echo "OK: Old PCIe reset GPIO removed"
-          fi
+          grep -n -A30 -B5 'pcie@1e140000' "$DTS" || true
 
-          echo "===== CHECK RESET CONTROLLER ====="
-          grep -n 'reset-names = "pcie0", "pcie1", "pcie2";' "$DTS"
+          echo
+          echo "===== RESET CONFIGURATION ====="
+
+          grep -n 'resets =' "$DTS" || true
+          grep -n 'reset-names' "$DTS" || true
 
       - name: Download package sources
         run: |
@@ -233,6 +255,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-360T6M-PCIe-Fixed-${{ github.run_number }}
+          name: ImmortalWrt-360T6M-Custom-DTS-${{ github.run_number }}
           path: |
             bin/targets/ramips/mt7621/*360*
