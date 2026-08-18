@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Free Disk Space
+      - name: Free Disk Space & Setup Swap
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -19,6 +19,13 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune -a -f
           sudo apt-get clean
+
+          # Create 4GB Swap file to handle RAM spikes
+          sudo fallocate -l 4G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
           df -h
 
       - name: Verify Branch
@@ -29,7 +36,7 @@ jobs:
       - name: Initialization Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd file wget
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc zlib1g-dev ecj fastjar java-common libelf-dev libfuse-dev libsnmp-dev python3-setuptools rsync subversion swig unzip zstd file wget ccache cmake
 
       - name: Download packages & Update feeds
         run: |
@@ -63,34 +70,6 @@ jobs:
           TARGET_DEVICES += 360_t6m
           EOF
 
-      - name: Patch PCIe Resets & WiFi Node in DTS
-        run: |
-          cat << 'EOF' >> target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
-
-          / {
-          	pcie@1e140000 {
-          		status = "okay";
-          		/delete-property/ reset-gpios;
-          		resets = <&rstctrl 28>, <&rstctrl 29>, <&rstctrl 30>;
-          		reset-names = "pcie0", "pcie1", "pcie2";
-
-          		pcie@1,0 {
-          			status = "okay";
-          		};
-          	};
-          };
-          EOF
-
-      - name: Patch Kernel Config for Reset Controller
-        run: |
-          for cfg in target/linux/ramips/mt7621/config-*; do
-            if [ -f "$cfg" ]; then
-              echo "CONFIG_RESET_CONTROLLER=y" >> "$cfg"
-              echo "CONFIG_RESET_MT7621=y" >> "$cfg"
-              echo "CONFIG_MFD_SYSCON=y" >> "$cfg"
-            fi
-          done
-
       - name: Inject Raw Force Network Script
         run: |
           mkdir -p files/etc/config
@@ -117,7 +96,7 @@ jobs:
           ip link set eth0 up 2>/dev/null
           ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
           ip link set eth1 up 2>/dev/null
-          ip addr add 192.168.1.1/24 dev eth1 2>/dev/null
+          ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
 
           # Force start Dropbear SSH
           dropbear -p 22 -B
@@ -170,13 +149,13 @@ jobs:
 
       - name: Build Firmware
         run: |
-          make -j$(nproc) V=s
+          make -j$(nproc) || make -j1 V=s
 
       - name: Upload Firmware
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-360T6M-Fixed-${{ github.run_number }}
+          name: ImmortalWrt-360T6M-Clean-${{ github.run_number }}
           path: |
             bin/targets/ramips/mt7621/*360*
             
