@@ -50,7 +50,7 @@ jobs:
       working-directory: /workdir/openwrt
       run: |
         echo "Verifying PCIe resets in target DTS..."
-        if grep -q 'reset-names = "pcie0' target/linux/ramips/dts/mt7621_qihoo_360t6m.dts; then
+        if grep -q 'resets = <0x05 0x18>' target/linux/ramips/dts/mt7621_qihoo_360t6m.dts; then
           echo "=========================================="
           echo "SUCCESS: PCIe Resets correctly verified!"
           echo "=========================================="
