@@ -5,12 +5,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
 
       # =========================================================
-      # 1. Checkout YOUR repository / 23.05.0 branch
+      # 1. Checkout source
       # =========================================================
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -34,15 +34,13 @@ jobs:
             bison \
             g++ \
             gawk \
-            gcc-multilib \
-            g++-multilib \
             gettext \
             git \
             libncurses5-dev \
             libncursesw5-dev \
             libssl-dev \
             python3 \
-            python3-pip \
+            python3-distutils \
             python3-setuptools \
             rsync \
             swig \
@@ -54,19 +52,18 @@ jobs:
             time
 
       # =========================================================
-      # 3. Check repository and DTS
+      # 3. Check source and DTS
       # =========================================================
       - name: Check Source and DTS
         run: |
           set -e
 
           echo "========================================"
-          echo "SOURCE INFORMATION"
+          echo "SOURCE"
           echo "========================================"
 
           git branch --show-current
           git rev-parse HEAD
-          git remote -v
 
           echo
           echo "========================================"
@@ -76,15 +73,16 @@ jobs:
           DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
 
           if [ ! -f "$DTS" ]; then
-            echo
-            echo "ERROR: DTS NOT FOUND:"
+            echo "ERROR: DTS not found:"
             echo "$DTS"
+
             echo
-            echo "Available 360 / Qihoo DTS files:"
+            echo "Searching for 360T6M DTS:"
             find target/linux/ramips/dts \
               -type f \
-              \( -iname '*360*' -o -iname '*qihoo*' \) \
+              \( -iname '*360*' -o -iname '*t6m*' -o -iname '*qihoo*' \) \
               -print || true
+
             exit 1
           fi
 
@@ -93,7 +91,7 @@ jobs:
 
           echo
           echo "========================================"
-          echo "DEVICE INFORMATION"
+          echo "DTS DEVICE"
           echo "========================================"
 
           grep -n -E \
@@ -102,10 +100,10 @@ jobs:
 
           echo
           echo "========================================"
-          echo "PCIe DTS"
+          echo "DTS PCIe"
           echo "========================================"
 
-          grep -n -A80 -B10 \
+          grep -n -A100 -B10 \
             'pcie@1e140000' \
             "$DTS" || true
 
@@ -119,13 +117,16 @@ jobs:
           ./scripts/feeds update -a
 
       # =========================================================
-      # 5. Install only required feeds
+      # 5. Install only required feed packages
       # =========================================================
-      - name: Install Required Feeds
+      - name: Install Required Feed Packages
         run: |
           set -e
 
-          ./scripts/feeds install -a
+          ./scripts/feeds install base
+          ./scripts/feeds install luci
+          ./scripts/feeds install packages
+          ./scripts/feeds install kernel
 
       # =========================================================
       # 6. Create configuration
@@ -141,13 +142,19 @@ jobs:
 
           CONFIG_LEGACY_IMAGE_FORMAT=y
 
+          # =====================================================
           # UBI / UBIFS
+          # =====================================================
+
           CONFIG_MTD_UBI=y
           CONFIG_MTD_UBI_BEB_LIMIT=20
           CONFIG_MTD_UBI_FASTMAP=y
           CONFIG_UBIFS_FS=y
 
+          # =====================================================
           # TPROXY / TUN
+          # =====================================================
+
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-tun=y
           CONFIG_PACKAGE_iptables-nft=y
@@ -155,67 +162,103 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
 
-          # MediaTek WiFi
+          # =====================================================
+          # MediaTek WiFi / MT7915
+          # =====================================================
+
           CONFIG_PACKAGE_kmod-mt76-connac=y
           CONFIG_PACKAGE_kmod-mt76-core=y
           CONFIG_PACKAGE_kmod-mt7915-firmware=y
           CONFIG_PACKAGE_kmod-mt7915e=y
           CONFIG_PACKAGE_wpad-openssl=y
 
-          # Basic
+          # =====================================================
+          # Basic packages
+          # =====================================================
+
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
           CONFIG_PACKAGE_dropbear=y
+
+          # =====================================================
+          # Kernel / Initramfs support
+          # =====================================================
+
+          CONFIG_TARGET_INITRAMFS_COMPRESSION_GZIP=y
           EOF
 
           echo
           echo "========================================"
-          echo "RUNNING DEFCONFIG"
+          echo "MAKE DEFCONFIG"
           echo "========================================"
 
           make defconfig
 
       # =========================================================
-      # 7. Verify final configuration
+      # 7. Verify configuration
       # =========================================================
       - name: Verify Configuration
         run: |
           set -e
 
+          echo
           echo "========================================"
           echo "TARGET"
           echo "========================================"
 
-          grep -E \
-            '^CONFIG_TARGET_|^CONFIG_TARGET_PROFILE=' \
+          grep -E '^CONFIG_TARGET_' .config || true
+
+          echo
+          echo "========================================"
+          echo "360T6M"
+          echo "========================================"
+
+          grep \
+            '^CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=' \
             .config || true
 
           echo
           echo "========================================"
-          echo "REQUESTED PACKAGES"
+          echo "UBI / UBIFS"
           echo "========================================"
 
           grep -E \
-            'CONFIG_PACKAGE_(kmod-nft-tproxy|kmod-tun|iptables-nft|kmod-mt76-connac|kmod-mt76-core|kmod-mt7915-firmware|kmod-mt7915e|wpad-openssl|luci|luci-ssl|dropbear)=' \
+            '^CONFIG_MTD_UBI=|^CONFIG_MTD_UBI_BEB_LIMIT=|^CONFIG_MTD_UBI_FASTMAP=|^CONFIG_UBIFS_FS=' \
             .config || true
 
           echo
           echo "========================================"
-          echo "NETFILTER"
+          echo "TPROXY / TUN"
           echo "========================================"
 
           grep -E \
-            'CONFIG_NETFILTER_XT_TARGET_TPROXY=|CONFIG_NETFILTER_XT_MATCH_SOCKET=|CONFIG_NF_CONNTRACK_MARK=' \
+            '^CONFIG_PACKAGE_kmod-nft-tproxy=|^CONFIG_PACKAGE_kmod-tun=|^CONFIG_PACKAGE_iptables-nft=|^CONFIG_NETFILTER_XT_TARGET_TPROXY=|^CONFIG_NETFILTER_XT_MATCH_SOCKET=|^CONFIG_NF_CONNTRACK_MARK=' \
             .config || true
 
           echo
           echo "========================================"
-          echo "DTS STILL PRESENT"
+          echo "MT7915"
           echo "========================================"
+
+          grep -E \
+            '^CONFIG_PACKAGE_kmod-mt76-connac=|^CONFIG_PACKAGE_kmod-mt76-core=|^CONFIG_PACKAGE_kmod-mt7915-firmware=|^CONFIG_PACKAGE_kmod-mt7915e=|^CONFIG_PACKAGE_wpad-openssl=' \
+            .config || true
+
+          echo
+          echo "========================================"
+          echo "INITRAMFS"
+          echo "========================================"
+
+          grep -E \
+            '^CONFIG_TARGET_INITRAMFS_' \
+            .config || true
+
+          echo
+          echo "DTS CHECK"
 
           test -f target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
 
-          echo "OK: DTS exists."
+          echo "DTS OK."
 
       # =========================================================
       # 8. Build firmware
@@ -224,22 +267,79 @@ jobs:
         run: |
           set -e
 
+          echo
           echo "========================================"
-          echo "BUILD START"
+          echo "FULL BUILD"
           echo "========================================"
 
           make -j$(nproc) V=s
 
       # =========================================================
-      # 9. Show generated firmware
+      # 9. Build kernel target
       # =========================================================
-      - name: List Firmware
+      - name: Build Kernel Targets
         run: |
+          set -e
+
+          echo
           echo "========================================"
-          echo "GENERATED FIRMWARE"
+          echo "KERNEL TARGETS"
           echo "========================================"
 
+          make target/linux/compile -j$(nproc) V=s
+
+      # =========================================================
+      # 10. Search for kernel files
+      # =========================================================
+      - name: Find Kernel Files
+        run: |
+          echo
+          echo "========================================"
+          echo "KERNEL FILES"
+          echo "========================================"
+
+          echo
+          echo "--- build_dir kernel files ---"
+
+          find build_dir \
+            -type f \
+            \( \
+              -name 'vmlinux' \
+              -o -name 'vmlinux.bin' \
+              -o -name 'vmlinux.bin.gz' \
+              -o -name 'vmlinux.bin.lzma' \
+              -o -name 'vmlinux.bin.lz4' \
+              -o -name 'vmlinux.bin.xz' \
+              -o -name '*initramfs*' \
+              -o -name '*kernel*.bin' \
+            \) \
+            -print 2>/dev/null || true
+
+          echo
+          echo "--- bin target files ---"
+
           find bin/targets/ramips/mt7621 \
+            -type f \
+            -print \
+            2>/dev/null || true
+
+      # =========================================================
+      # 11. Prepare kernel artifact directory
+      # =========================================================
+      - name: Prepare Kernel Artifact
+        run: |
+          set -e
+
+          mkdir -p kernel-artifact
+
+          echo
+          echo "========================================"
+          echo "COLLECT KERNEL"
+          echo "========================================"
+
+          # Copy all firmware images
+          find bin/targets/ramips/mt7621 \
+            -maxdepth 1 \
             -type f \
             \( \
               -name '*.bin' \
@@ -247,20 +347,71 @@ jobs:
               -o -name '*.itb' \
               -o -name '*.img' \
             \) \
-            -print \
+            -exec cp -v {} kernel-artifact/ \; \
+            2>/dev/null || true
+
+          # Copy vmlinux / kernel images from build tree
+          find build_dir \
+            -type f \
+            \( \
+              -name 'vmlinux' \
+              -o -name 'vmlinux.bin' \
+              -o -name 'vmlinux.bin.gz' \
+              -o -name 'vmlinux.bin.lzma' \
+              -o -name 'vmlinux.bin.lz4' \
+              -o -name 'vmlinux.bin.xz' \
+              -o -name '*initramfs*' \
+            \) \
+            -exec cp -v {} kernel-artifact/ \; \
+            2>/dev/null || true
+
+          # Copy checksums
+          if [ -f bin/targets/ramips/mt7621/sha256sums ]; then
+            cp \
+              bin/targets/ramips/mt7621/sha256sums \
+              kernel-artifact/
+          fi
+
+          echo
+          echo "========================================"
+          echo "FINAL ARTIFACT"
+          echo "========================================"
+
+          find kernel-artifact \
+            -type f \
             -exec ls -lh {} \;
 
+          echo
+          echo "========================================"
+          echo "SHA256"
+          echo "========================================"
+
+          cd kernel-artifact
+
+          for f in *; do
+            if [ -f "$f" ]; then
+              sha256sum "$f"
+            fi
+          done
+
       # =========================================================
-      # 10. Upload firmware
+      # 12. Upload firmware + kernel
       # =========================================================
-      - name: Upload Firmware
+      - name: Upload Firmware and Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-23.05.0-360T6M
+          name: ImmortalWrt-23.05.0-360T6M-Firmware-Kernel
+          path: kernel-artifact/*
+          if-no-files-found: error
+
+      # =========================================================
+      # 13. Upload complete build information
+      # =========================================================
+      - name: Upload Build Information
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-23.05.0-360T6M-Build-Info
           path: |
-            bin/targets/ramips/mt7621/*.bin
-            bin/targets/ramips/mt7621/*.ubi
-            bin/targets/ramips/mt7621/*.itb
-            bin/targets/ramips/mt7621/*.img
-            bin/targets/ramips/mt7621/sha256sums
+            .config
+            target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
           if-no-files-found: error
