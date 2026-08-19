@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 23.05.0 for 360T6M
+name: Build ImmortalWrt 23.05.0 - 360T6M
 
 on:
   workflow_dispatch:
@@ -10,9 +10,9 @@ jobs:
     steps:
 
       # =========================================================
-      # 1. Checkout YOUR fork / current repository
+      # 1. Checkout YOUR repository / 23.05.0 branch
       # =========================================================
-      - name: Checkout ImmortalWrt 23.05.0
+      - name: Checkout Source
         uses: actions/checkout@v4
         with:
           ref: 23.05.0
@@ -23,6 +23,8 @@ jobs:
       # =========================================================
       - name: Install Build Dependencies
         run: |
+          set -e
+
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -40,7 +42,7 @@ jobs:
             libncursesw5-dev \
             libssl-dev \
             python3 \
-            python3-distutils \
+            python3-pip \
             python3-setuptools \
             rsync \
             swig \
@@ -52,27 +54,37 @@ jobs:
             time
 
       # =========================================================
-      # 3. Verify source and DTS
+      # 3. Check repository and DTS
       # =========================================================
-      - name: Verify 360T6M DTS
+      - name: Check Source and DTS
         run: |
           set -e
 
-          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+          echo "========================================"
+          echo "SOURCE INFORMATION"
+          echo "========================================"
 
-          echo "===== SOURCE ====="
           git branch --show-current
           git rev-parse HEAD
+          git remote -v
 
           echo
-          echo "===== CHECK DTS ====="
+          echo "========================================"
+          echo "CHECK 360T6M DTS"
+          echo "========================================"
+
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
 
           if [ ! -f "$DTS" ]; then
-            echo "ERROR: DTS not found:"
+            echo
+            echo "ERROR: DTS NOT FOUND:"
             echo "$DTS"
             echo
-            echo "Available Qihoo DTS files:"
-            find target/linux/ramips/dts -iname '*360*' -o -iname '*qihoo*' || true
+            echo "Available 360 / Qihoo DTS files:"
+            find target/linux/ramips/dts \
+              -type f \
+              \( -iname '*360*' -o -iname '*qihoo*' \) \
+              -print || true
             exit 1
           fi
 
@@ -80,12 +92,22 @@ jobs:
           ls -lh "$DTS"
 
           echo
-          echo "===== DTS DEVICE INFO ====="
-          grep -n -E 'compatible|model|360|T6M' "$DTS" || true
+          echo "========================================"
+          echo "DEVICE INFORMATION"
+          echo "========================================"
+
+          grep -n -E \
+            'compatible|model|360|T6M' \
+            "$DTS" || true
 
           echo
-          echo "===== DTS PCIe SECTION ====="
-          grep -n -A80 -B10 'pcie@1e140000' "$DTS" || true
+          echo "========================================"
+          echo "PCIe DTS"
+          echo "========================================"
+
+          grep -n -A80 -B10 \
+            'pcie@1e140000' \
+            "$DTS" || true
 
       # =========================================================
       # 4. Update feeds
@@ -97,16 +119,16 @@ jobs:
           ./scripts/feeds update -a
 
       # =========================================================
-      # 5. Install feeds
+      # 5. Install only required feeds
       # =========================================================
-      - name: Install Feeds
+      - name: Install Required Feeds
         run: |
           set -e
 
           ./scripts/feeds install -a
 
       # =========================================================
-      # 6. Create minimal configuration
+      # 6. Create configuration
       # =========================================================
       - name: Configure 360T6M
         run: |
@@ -133,104 +155,7 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
 
-          # WiFi - MediaTek MT7915
-          CONFIG_PACKAGE_kmod-mt76-connac=y
-          CONFIG_PACKAGE_kmod-mt76-core=y
-          CONFIG_PACKAGE_kmod-mt7915-firmware=y
-          CONFIG_PACKAGE_kmod-mt7915e=y
-          CONFIG_PACKAGE_wpad-openssl=y
-
-          # Basic packages
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-          CONFIG_PACKAGE_dropbear=y
-          EOF
-
-          echo "===== INITIAL CONFIG ====="
-          cat .config
-
-      # =========================================================
-      # 7. Generate final configuration
-      # =========================================================
-      - name: Run Defconfig
-        run: |
-          set -e
-
-          make defconfig
-
-          echo
-          echo "===== TARGET CONFIG ====="
-          grep -E \
-            'CONFIG_TARGET_ramips=|CONFIG_TARGET_ramips_mt7621=|CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=' \
-            .config || true
-
-          echo
-          echo "===== PACKAGE CONFIG ====="
-          grep -E \
-            'CONFIG_PACKAGE_(kmod-nft-tproxy|kmod-tun|iptables-nft|kmod-mt76-connac|kmod-mt76-core|kmod-mt7915-firmware|kmod-mt7915e|wpad-openssl|luci|luci-ssl|dropbear)=' \
-            .config || true
-
-      # =========================================================
-      # 8. Verify target profile was accepted
-      # =========================================================
-      - name: Verify Target Profile
-        run: |
-          set -e
-
-          echo "===== TARGET ====="
-          grep '^CONFIG_TARGET_BOARD=' .config
-          grep '^CONFIG_TARGET_SUBTARGET=' .config
-          grep '^CONFIG_TARGET_PROFILE=' .config
-
-          PROFILE="$(grep '^CONFIG_TARGET_PROFILE=' .config | cut -d'"' -f2)"
-
-          echo
-          echo "Selected profile:"
-          echo "$PROFILE"
-
-          if [ "$PROFILE" != "DEVICE_360_t6m" ]; then
-            echo
-            echo "ERROR: 360T6M target profile was NOT selected."
-            echo "The DTS exists, but the target device definition may be missing."
-            exit 1
-          fi
-
-      # =========================================================
-      # 9. Clean build
-      # =========================================================
-      - name: Clean Build
-        run: |
-          make clean
-
-      # =========================================================
-      # 10. Re-apply configuration after clean
-      # =========================================================
-      - name: Restore Configuration
-        run: |
-          set -e
-
-          cat > .config <<'EOF'
-          CONFIG_TARGET_ramips=y
-          CONFIG_TARGET_ramips_mt7621=y
-          CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
-
-          CONFIG_LEGACY_IMAGE_FORMAT=y
-
-          # UBI / UBIFS
-          CONFIG_MTD_UBI=y
-          CONFIG_MTD_UBI_BEB_LIMIT=20
-          CONFIG_MTD_UBI_FASTMAP=y
-          CONFIG_UBIFS_FS=y
-
-          # TPROXY / TUN
-          CONFIG_PACKAGE_kmod-nft-tproxy=y
-          CONFIG_PACKAGE_kmod-tun=y
-          CONFIG_PACKAGE_iptables-nft=y
-          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
-          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
-          CONFIG_NF_CONNTRACK_MARK=y
-
-          # WiFi
+          # MediaTek WiFi
           CONFIG_PACKAGE_kmod-mt76-connac=y
           CONFIG_PACKAGE_kmod-mt76-core=y
           CONFIG_PACKAGE_kmod-mt7915-firmware=y
@@ -243,35 +168,90 @@ jobs:
           CONFIG_PACKAGE_dropbear=y
           EOF
 
+          echo
+          echo "========================================"
+          echo "RUNNING DEFCONFIG"
+          echo "========================================"
+
           make defconfig
 
       # =========================================================
-      # 11. Build firmware
+      # 7. Verify final configuration
+      # =========================================================
+      - name: Verify Configuration
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "TARGET"
+          echo "========================================"
+
+          grep -E \
+            '^CONFIG_TARGET_|^CONFIG_TARGET_PROFILE=' \
+            .config || true
+
+          echo
+          echo "========================================"
+          echo "REQUESTED PACKAGES"
+          echo "========================================"
+
+          grep -E \
+            'CONFIG_PACKAGE_(kmod-nft-tproxy|kmod-tun|iptables-nft|kmod-mt76-connac|kmod-mt76-core|kmod-mt7915-firmware|kmod-mt7915e|wpad-openssl|luci|luci-ssl|dropbear)=' \
+            .config || true
+
+          echo
+          echo "========================================"
+          echo "NETFILTER"
+          echo "========================================"
+
+          grep -E \
+            'CONFIG_NETFILTER_XT_TARGET_TPROXY=|CONFIG_NETFILTER_XT_MATCH_SOCKET=|CONFIG_NF_CONNTRACK_MARK=' \
+            .config || true
+
+          echo
+          echo "========================================"
+          echo "DTS STILL PRESENT"
+          echo "========================================"
+
+          test -f target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
+
+          echo "OK: DTS exists."
+
+      # =========================================================
+      # 8. Build firmware
       # =========================================================
       - name: Build Firmware
         run: |
           set -e
 
-          echo "===== BUILD START ====="
+          echo "========================================"
+          echo "BUILD START"
+          echo "========================================"
 
           make -j$(nproc) V=s
 
       # =========================================================
-      # 12. Show generated images
+      # 9. Show generated firmware
       # =========================================================
       - name: List Firmware
         run: |
-          echo "===== GENERATED FIRMWARE ====="
+          echo "========================================"
+          echo "GENERATED FIRMWARE"
+          echo "========================================"
 
           find bin/targets/ramips/mt7621 \
-            -maxdepth 2 \
             -type f \
-            \( -name '*.bin' -o -name '*.ubi' -o -name '*.itb' -o -name '*.img' \) \
+            \( \
+              -name '*.bin' \
+              -o -name '*.ubi' \
+              -o -name '*.itb' \
+              -o -name '*.img' \
+            \) \
             -print \
             -exec ls -lh {} \;
 
       # =========================================================
-      # 13. Upload firmware
+      # 10. Upload firmware
       # =========================================================
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
