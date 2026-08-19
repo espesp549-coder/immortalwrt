@@ -11,10 +11,11 @@ jobs:
       - name: Checkout ImmortalWrt 23.05.0
         uses: actions/checkout@v4
         with:
+          repository: immortalwrt/immortalwrt
           ref: openwrt-23.05
           fetch-depth: 1
 
-      - name: Setup Swap Space
+      - name: Setup Swap
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile
@@ -27,6 +28,7 @@ jobs:
       - name: Initialization Environment
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             clang \
@@ -37,7 +39,7 @@ jobs:
             git \
             libncurses5-dev \
             libssl-dev \
-            python3-distutils \
+            python3 \
             python3-setuptools \
             rsync \
             unzip \
@@ -47,17 +49,15 @@ jobs:
             curl \
             xsltproc \
             libelf-dev \
-            libfuse-dev \
-            libsnmp-dev \
             swig \
             ccache \
             cmake \
             zstd
 
-      - name: Verify Source
+      - name: Verify ImmortalWrt Source
         run: |
           echo "===== SOURCE ====="
-          git branch --show-current
+          git remote -v
           git log -1 --oneline
           echo
 
@@ -66,44 +66,30 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Install Custom 360T6M DTS
+      - name: Verify 360T6M DTS
         run: |
-          DTS_FILE="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
+          DTS="target/linux/ramips/dts/mt7621_qihoo_360t6m.dts"
 
-          echo "===== DTS ====="
+          echo "===== CHECK DTS ====="
 
-          if [ ! -f "$DTS_FILE" ]; then
-            echo "ERROR: DTS file not found:"
-            echo "$DTS_FILE"
+          if [ ! -f "$DTS" ]; then
+            echo "ERROR: DTS not found:"
+            echo "$DTS"
             exit 1
           fi
 
-          echo "Using:"
-          echo "$DTS_FILE"
-
-          ls -lh "$DTS_FILE"
+          echo "DTS FOUND:"
+          ls -lh "$DTS"
 
           echo
-          echo "===== PCIe NODE ====="
-          grep -n -A80 -B10 'pcie@1e140000' "$DTS_FILE" || true
-
-      - name: Verify 360T6M Device
-        run: |
-          echo "===== CHECKING DEVICE ====="
-
-          grep -R "360_t6m" -n \
-            target/linux/ramips/image \
-            target/linux/ramips/image/mt7621.mk \
-            2>/dev/null || true
+          echo "===== DTS DEVICE ====="
+          grep -n -E '360|T6M|compatible|model' "$DTS" | head -50 || true
 
           echo
-          echo "===== DTS REFERENCES ====="
+          echo "===== PCIe ====="
+          grep -n -A80 -B10 'pcie@1e140000' "$DTS" || true
 
-          grep -R "mt7621_qihoo_360t6m" -n \
-            target/linux/ramips \
-            2>/dev/null || true
-
-      - name: Load Build Configuration
+      - name: Load 360T6M Configuration
         run: |
           cat << 'EOF' > .config
 
@@ -112,13 +98,13 @@ jobs:
           CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
           CONFIG_LEGACY_IMAGE_FORMAT=y
 
-          # UBI/UBIFS support
+          # UBI / UBIFS
           CONFIG_MTD_UBI=y
           CONFIG_MTD_UBI_BEB_LIMIT=20
           CONFIG_MTD_UBI_FASTMAP=y
           CONFIG_UBIFS_FS=y
 
-          # TProxy / TUN
+          # TPROXY / TUN
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-tun=y
           CONFIG_PACKAGE_iptables-nft=y
@@ -148,14 +134,19 @@ jobs:
           grep '^CONFIG_TARGET_' .config | grep -E 'ramips|mt7621|360_t6m' || true
 
           echo
-          echo "===== WIFI ====="
-          grep '^CONFIG_PACKAGE_.*mt76\|^CONFIG_PACKAGE_.*mt7915\|^CONFIG_PACKAGE_wpad' .config || true
+          echo "===== MT7915 ====="
+          grep '^CONFIG_PACKAGE_.*mt7915' .config || true
+
+          echo
+          echo "===== MT76 ====="
+          grep '^CONFIG_PACKAGE_.*mt76' .config || true
 
           echo
           echo "===== TPROXY / TUN ====="
-          grep '^CONFIG_PACKAGE_kmod-nft-tproxy\|^CONFIG_PACKAGE_kmod-tun\|^CONFIG_PACKAGE_iptables-nft' .config || true
+          grep '^CONFIG_PACKAGE_kmod-nft-tproxy' .config || true
+          grep '^CONFIG_PACKAGE_kmod-tun' .config || true
 
-      - name: Download Package Sources
+      - name: Download Sources
         run: |
           make download -j8
           find dl -size -1024c -exec rm -f {} \;
