@@ -44,11 +44,9 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Patch DTS and 02_network Dynamically
+    - name: Patch DTS and 02_network
       run: |
-        echo ">>> استبدال الـ DTS التالف وتعديل 02_network حياً أثناء البناء..."
-        
-        # 1. البحث عن ملف الـ DTS وتجاوز الكود القديم بفرضه بنظام DSA
+        # 1. كتابة كود DTS متوافق 100% مع معيار DSA
         DTS_FILES=$(find target/linux/ramips/dts/ -type f \( -name "*t6m*.dts" -o -name "*360*.dts" \))
         for f in $DTS_FILES; do
           cat << 'EOF' > "$f"
@@ -228,20 +226,21 @@ jobs:
         		};
         	};
         };
-
-        &state_default {
-        	gpio {
-        		groups = "jtag", "wdt", "uart3";
-        		function = "gpio";
-        	};
-        };
         EOF
         done
 
-        # 2. تعديل ملف 02_network تلقائياً لتسجيل توزيع منافذ LAN و WAN
+        # 2. حقن إعدادات الشبكة المباشرة في 02_network بدون كسر السكريبت
         NET_FILE="target/linux/ramips/mt7621/base-files/etc/board.d/02_network"
         if [ -f "$NET_FILE" ]; then
-          sed -i '/ramips_setup_interfaces()/a \	360,360t6m|360,t6m|360t6m)\n\t\tucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"\n\t\t;;' "$NET_FILE"
+          cat << 'EOF' >> "$NET_FILE"
+
+        # Custom entry for 360T6M
+        case "$board" in
+        360,360t6m|360,t6m|360t6m)
+        	ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
+        	;;
+        esac
+        EOF
         fi
 
     - name: Configure Build
