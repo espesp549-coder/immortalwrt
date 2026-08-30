@@ -20,13 +20,229 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -y update
-        sudo -E apt-get -y install build-essential clang flex bison gstreamer1.0-plugins-base gstreamer1.0-tools libffi-dev libgdk-pixbuf2.0-dev libglib2.0-dev libgmp-dev libltdl-dev libncurses-dev libncurses5-dev libpcap-dev libpcre3-dev libssl-dev libxml2-dev openssl python3-dev python3-setuptools rsync subversion swig time xsltproc zlib1g-dev
+        sudo -E apt-get -y install build-essential ccache clang flex bison gstreamer1.0-plugins-base gstreamer1.0-tools libffi-dev libgdk-pixbuf2.0-dev libglib2.0-dev libgmp-dev libltdl-dev libncurses-dev libncurses5-dev libpcap-dev libpcre3-dev libssl-dev libxml2-dev openssl python3-dev python3-setuptools rsync subversion swig time xsltproc zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
+
+    - name: Cache OpenWrt DL Directory
+      uses: actions/cache@v4
+      with:
+        path: dl
+        key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('**/Makefile') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-dl-
+
+    - name: Cache Ccache Data
+      uses: actions/cache@v4
+      with:
+        path: .ccache
+        key: ${{ runner.os }}-openwrt-ccache-${{ hashFiles('**/Makefile') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-ccache-
 
     - name: Update & Install Feeds
       run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+
+    - name: Patch DTS and 02_network Dynamically
+      run: |
+        echo ">>> استبدال الـ DTS التالف وتعديل 02_network حياً أثناء البناء..."
+        
+        # 1. البحث عن ملف الـ DTS وتجاوز الكود القديم بفرضه بنظام DSA
+        DTS_FILES=$(find target/linux/ramips/dts/ -type f \( -name "*t6m*.dts" -o -name "*360*.dts" \))
+        for f in $DTS_FILES; do
+          cat << 'EOF' > "$f"
+        /dts-v1/;
+
+        #include "mt7621.dtsi"
+
+        #include <dt-bindings/gpio/gpio.h>
+        #include <dt-bindings/input/input.h>
+
+        / {
+        	compatible = "360,360t6m", "360,t6m", "mediatek,mt7621-soc";
+        	model = "360T6M";
+
+        	aliases {
+        		led-boot = &led_system;
+        		led-failsafe = &led_system;
+        		led-running = &led_system;
+        		led-upgrade = &led_system;
+        	};
+
+        	chosen {
+        		bootargs = "console=ttyS0,115200";
+        	};
+
+        	leds {
+        		compatible = "gpio-leds";
+
+        		power {
+        			label = "red:power";
+        			gpios = <&gpio 13 GPIO_ACTIVE_LOW>;
+        		};
+
+        		led_system: system {
+        			label = "green:system";
+        			gpios = <&gpio 15 GPIO_ACTIVE_HIGH>;
+        		};
+        	};
+
+        	keys {
+        		compatible = "gpio-keys";
+
+        		reset {
+        			label = "reset";
+        			gpios = <&gpio 7 GPIO_ACTIVE_LOW>;
+        			linux,code = <KEY_RESTART>;
+        		};
+
+        		wps {
+        			label = "wps";
+        			gpios = <&gpio 6 GPIO_ACTIVE_LOW>;
+        			linux,code = <KEY_WPS_BUTTON>;
+        		};
+        	};
+        };
+
+        &nand {
+        	status = "okay";
+
+        	partitions {
+        		compatible = "fixed-partitions";
+        		#address-cells = <1>;
+        		#size-cells = <1>;
+
+        		partition@0 {
+        			label = "Bootloader";
+        			reg = <0x000000 0x080000>;
+        			read-only;
+        		};
+
+        		partition@80000 {
+        			label = "Nvram";
+        			reg = <0x080000 0x040000>;
+        			read-only;
+        		};
+
+        		partition@c0000 {
+        			label = "Bdata";
+        			reg = <0x0c0000 0x040000>;
+        			read-only;
+        		};
+
+        		factory: partition@100000 {
+        			label = "Factory";
+        			reg = <0x100000 0x080000>;
+        			read-only;
+
+        			nvmem-layout {
+        				compatible = "fixed-layout";
+        				#address-cells = <1>;
+        				#size-cells = <1>;
+
+        				macaddr_factory_e000: macaddr@e000 {
+        					reg = <0xe000 0x6>;
+        				};
+
+        				macaddr_factory_e006: macaddr@e006 {
+        					reg = <0xe006 0x6>;
+        				};
+        			};
+        		};
+
+        		partition@180000 {
+        			label = "crash";
+        			reg = <0x180000 0x040000>;
+        			read-only;
+        		};
+
+        		partition@1c0000 {
+        			label = "crash_log";
+        			reg = <0x1c0000 0x040000>;
+        			read-only;
+        		};
+
+        		partition@200000 {
+        			label = "kernel";
+        			reg = <0x200000 0x400000>;
+        		};
+
+        		partition@600000 {
+        			label = "ubi";
+        			reg = <0x600000 0x7980000>;
+        		};
+        	};
+        };
+
+        &eth {
+        	status = "okay";
+
+        	gmac0: mac@0 {
+        		compatible = "mediatek,eth-mac";
+        		reg = <0>;
+        		phy-mode = "rgmii";
+        		nvmem-cells = <&macaddr_factory_e000>;
+        		nvmem-cell-names = "mac-address";
+
+        		fixed-link {
+        			speed = <1000>;
+        			full-duplex;
+        		};
+        	};
+        };
+
+        &switch0 {
+        	ports {
+        		port@0 {
+        			status = "okay";
+        			label = "lan3";
+        		};
+
+        		port@1 {
+        			status = "okay";
+        			label = "lan2";
+        		};
+
+        		port@2 {
+        			status = "okay";
+        			label = "lan1";
+        		};
+
+        		port@3 {
+        			status = "okay";
+        			label = "wan";
+        			nvmem-cells = <&macaddr_factory_e006>;
+        			nvmem-cell-names = "mac-address";
+        		};
+
+        		port@6 {
+        			status = "okay";
+        			ethernet = <&gmac0>;
+        			phy-mode = "rgmii";
+
+        			fixed-link {
+        				speed = <1000>;
+        				full-duplex;
+        			};
+        		};
+        	};
+        };
+
+        &state_default {
+        	gpio {
+        		groups = "jtag", "wdt", "uart3";
+        		function = "gpio";
+        	};
+        };
+        EOF
+        done
+
+        # 2. تعديل ملف 02_network تلقائياً لتسجيل توزيع منافذ LAN و WAN
+        NET_FILE="target/linux/ramips/mt7621/base-files/etc/board.d/02_network"
+        if [ -f "$NET_FILE" ]; then
+          sed -i '/ramips_setup_interfaces()/a \	360,360t6m|360,t6m|360t6m)\n\t\tucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"\n\t\t;;' "$NET_FILE"
+        fi
 
     - name: Configure Build
       run: |
@@ -35,6 +251,8 @@ jobs:
         elif [ -f "config seed" ]; then
           cp "config seed" .config
         fi
+        echo "CONFIG_CCACHE=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
         make defconfig
 
     - name: Set Custom IP via UCI Defaults
@@ -49,29 +267,6 @@ jobs:
         EOF
         chmod +x files/etc/uci-defaults/99-custom-ip
 
-    - name: Verify Network & DHCP Config Before Build
-      run: |
-        echo ">>> التحقق من إعدادات الشبكة وتوزيع الآيبيات قبل البناء..."
-        
-        # 1. التأكد من وجود سكريبت الـ UCI لتثبيت الآيبي 192.168.1.1
-        if [ ! -f files/etc/uci-defaults/99-custom-ip ]; then
-          echo "❌ خطأ: سكريبت إعدادات الآيبي غير موجود!" && exit 1
-        fi
-        
-        # 2. التأكد من تفعيل خادم الـ DHCP (dnsmasq) لتوزيع الآيبيات
-        if ! grep -q "CONFIG_PACKAGE_dnsmasq=y\|CONFIG_PACKAGE_dnsmasq-full=y" .config; then
-          echo "⚠️ خادم الـ DHCP غير مفعل في .config، جاري تفعيله إجبارياً..."
-          echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-          make defconfig
-        fi
-        
-        # 3. التأكد من وجود ملف الـ DTS الخاص بـ 360T6M
-        if [ ! -f target/linux/ramips/dts/t6m.dts ]; then
-          echo "❌ خطأ: ملف t6m.dts غير موجود في المسار المطلوب!" && exit 1
-        fi
-        
-        echo "✅ تم فحص جميع إعدادات الـ LAN والـ DHCP بنجاح، جاهز للبناء."
-
     - name: Download Packages
       run: |
         make download -j8
@@ -84,7 +279,7 @@ jobs:
     - name: Upload Firmware Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ImmortalWrt_360T6M_Uncompressed
+        name: ImmortalWrt_360T6M_Fixed
         path: |
           bin/targets/ramips/mt7621/*.bin
           bin/targets/ramips/mt7621/manifest
