@@ -44,13 +44,10 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Patch DTS and 02_network
+    - name: Patch Exact DTS and 02_network
       run: |
-        # 1. كتابة كود DTS متوافق 100% مع معيار DSA
-        DTS_FILES=$(find target/linux/ramips/dts/ -type f \( -name "*t6m*.dts" -o -name "*360*.dts" \))
-        for f in $DTS_FILES; do
-          cat << 'EOF' > "$f"
-        /dts-v1/;
+        python3 -c '
+        dts_content = """/dts-v1/;
 
         #include "mt7621.dtsi"
 
@@ -58,8 +55,8 @@ jobs:
         #include <dt-bindings/input/input.h>
 
         / {
-        	compatible = "360,360t6m", "360,t6m", "mediatek,mt7621-soc";
-        	model = "360T6M";
+        	compatible = "qihoo,360t6m", "360,360t6m", "360,t6m", "mediatek,mt7621-soc";
+        	model = "Qihoo 360T6M";
 
         	aliases {
         		led-boot = &led_system;
@@ -226,22 +223,16 @@ jobs:
         		};
         	};
         };
-        EOF
-        done
-
-        # 2. حقن إعدادات الشبكة المباشرة في 02_network بدون كسر السكريبت
-        NET_FILE="target/linux/ramips/mt7621/base-files/etc/board.d/02_network"
-        if [ -f "$NET_FILE" ]; then
-          cat << 'EOF' >> "$NET_FILE"
-
-        # Custom entry for 360T6M
-        case "$board" in
-        360,360t6m|360,t6m|360t6m)
-        	ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
-        	;;
-        esac
-        EOF
-        fi
+        """
+        with open("target/linux/ramips/dts/mt7621_qihoo_360t6m.dts", "w") as f:
+            f.write(dts_content)
+        '
+        echo '' >> target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+        echo 'case "$board" in' >> target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+        echo 'qihoo,360t6m|360,360t6m|360,t6m|360t6m)' >> target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+        echo '	ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"' >> target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+        echo '	;;' >> target/linux/ramips/mt7621/base-files/etc/board.d/02_network
+        echo 'esac' >> target/linux/ramips/mt7621/base-files/etc/board.d/02_network
 
     - name: Configure Build
       run: |
@@ -257,13 +248,11 @@ jobs:
     - name: Set Custom IP via UCI Defaults
       run: |
         mkdir -p files/etc/uci-defaults
-        cat << 'EOF' > files/etc/uci-defaults/99-custom-ip
-        #!/bin/sh
-        uci set network.lan.ipaddr='192.168.1.1'
-        uci set network.lan.netmask='255.255.255.0'
-        uci commit network
-        exit 0
-        EOF
+        echo '#!/bin/sh' > files/etc/uci-defaults/99-custom-ip
+        echo "uci set network.lan.ipaddr='192.168.1.1'" >> files/etc/uci-defaults/99-custom-ip
+        echo "uci set network.lan.netmask='255.255.255.0'" >> files/etc/uci-defaults/99-custom-ip
+        echo "uci commit network" >> files/etc/uci-defaults/99-custom-ip
+        echo "exit 0" >> files/etc/uci-defaults/99-custom-ip
         chmod +x files/etc/uci-defaults/99-custom-ip
 
     - name: Download Packages
