@@ -153,31 +153,23 @@ jobs:
           CONFIG_TARGET_ramips_mt7621=y
           CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
 
-          # UBI/UBIFS support
+          # UBI/UBIFS support (kernel-level, safe to force)
           CONFIG_MTD_UBI=y
           CONFIG_MTD_UBI_BEB_LIMIT=20
           CONFIG_MTD_UBI_FASTMAP=y
           CONFIG_UBIFS_FS=y
 
-          # TProxy / TUN
-          CONFIG_PACKAGE_kmod-nft-tproxy=y
-          CONFIG_PACKAGE_kmod-tun=y
-          CONFIG_PACKAGE_iptables-nft=y
+          # Netfilter kernel options for TProxy (kernel-level, safe to force)
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
 
-          # Wi-Fi
-          CONFIG_PACKAGE_kmod-mt76-connac=y
-          CONFIG_PACKAGE_kmod-mt76-core=y
-          CONFIG_PACKAGE_kmod-mt7915-firmware=y
-          CONFIG_PACKAGE_kmod-mt7915e=y
-          CONFIG_PACKAGE_wpad-openssl=y
-
-          # LuCI / SSH
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-          CONFIG_PACKAGE_dropbear=y
+          # NOTE: do NOT force CONFIG_PACKAGE_* here for luci/wpad/dropbear/
+          # kmod-mt76*/kmod-nft-tproxy/kmod-tun — they are already selected
+          # via DEVICE_PACKAGES in the device's mt7621.mk block, which resolves
+          # a single consistent SSL backend (libustream-*) across the whole
+          # image. Duplicating them here caused a libustream-openssl vs
+          # libustream-mbedtls file clash during package/install.
           EOF
           make defconfig
 
