@@ -79,13 +79,24 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Debug — list repo root and files dir (diagnose path issues)
+        run: |
+          echo "===== REPO ROOT ====="
+          ls -la
+          echo "===== find any dir matching 'files*' ====="
+          find . -maxdepth 1 -iname "files*" -print
+          echo "===== find DTS/MK anywhere in repo (excluding openwrt/) ====="
+          find . -maxdepth 3 -iname "*.dts" -not -path "./openwrt/*"
+          find . -maxdepth 3 -iname "*.mk" -not -path "./openwrt/*"
+
       - name: Inject custom DTS
         run: |
-          DTS_SRC="files/$DTS_FILE"
-          if [ ! -f "$DTS_SRC" ]; then
-            echo "ERROR: $DTS_SRC not found in repo — upload it under files/ first."
+          DTS_SRC=$(find . -maxdepth 3 -iname "$DTS_FILE" -not -path "./openwrt/*" | head -1)
+          if [ -z "$DTS_SRC" ]; then
+            echo "ERROR: $DTS_FILE not found anywhere in repo (searched under any 'files*' dir) — upload it first."
             exit 1
           fi
+          echo "Found DTS at: $DTS_SRC"
           cp "$DTS_SRC" openwrt/target/linux/ramips/dts/
           echo "DTS copied:"
           ls -lh "openwrt/target/linux/ramips/dts/$DTS_FILE"
@@ -120,18 +131,19 @@ jobs:
 
       - name: Inject device definition into mt7621.mk
         run: |
-          MK_SRC="files/$MK_SNIPPET"
-          if [ ! -f "$MK_SRC" ]; then
-            echo "ERROR: $MK_SRC not found in repo — upload it under files/ first."
+          MK_SRC=$(find "$(pwd)" -maxdepth 3 -iname "$MK_SNIPPET" -not -path "*/openwrt/*" | head -1)
+          if [ -z "$MK_SRC" ]; then
+            echo "ERROR: $MK_SNIPPET not found anywhere in repo (searched under any 'files*' dir) — upload it first."
             exit 1
           fi
+          echo "Found MK snippet at: $MK_SRC"
           cd openwrt
           MK=target/linux/ramips/image/mt7621.mk
           if grep -q "Device/${DEVICE_PKG}" "$MK"; then
             echo "Device/${DEVICE_PKG} already defined in $MK — skipping append."
           else
             echo "" >> "$MK"
-            cat "../$MK_SRC" >> "$MK"
+            cat "$MK_SRC" >> "$MK"
             echo "Appended device block to $MK"
           fi
 
