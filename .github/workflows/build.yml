@@ -90,34 +90,6 @@ jobs:
           cp "$DTS_SRC" openwrt/target/linux/ramips/dts/
           echo "DTS copied successfully."
 
-      - name: Inject port mapping (02_network, DSA-style)
-        run: |
-          python3 - << 'EOF'
-          import re, sys
-
-          path = "openwrt/target/linux/ramips/mt7621/base-files/etc/board.d/02_network"
-          with open(path) as f:
-              content = f.read()
-
-          if "360,360t6m" in content:
-              print("Entry already present — skipping.")
-              sys.exit(0)
-
-          m = re.search(r'(ramips_setup_interfaces\(\)\s*\{.*?case\s+"?\$board"?\s+in\n)', content, re.S)
-          if not m:
-              sys.exit("ERROR: could not find case anchor in 02_network — check file manually.")
-
-          block = (
-              '\t360,360t6m)\n'
-              '\t\tucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"\n'
-              '\t\t;;\n'
-          )
-          new_content = content[:m.end()] + block + content[m.end():]
-          with open(path, "w") as f:
-              f.write(new_content)
-          print("Inserted 360,360t6m DSA lan/wan mapping into 02_network.")
-          EOF
-
       - name: Inject device definition into mt7621.mk
         run: |
           MK_SRC=$(find "$(pwd)" -maxdepth 3 -iname "$MK_SNIPPET" -not -path "*/openwrt/*" | head -1)
@@ -136,16 +108,131 @@ jobs:
             echo "Appended device block to $MK"
           fi
 
-      - name: Inject custom files/ directory (board.json, network, wireless configs)
+      - name: Inject Custom Files (board.json, network config, wireless config, and boot script)
         run: |
           FILES_DIR=$(find . -maxdepth 2 -type d -name "files" -not -path "./openwrt*" | head -1)
           if [ -n "$FILES_DIR" ]; then
             echo "Found files directory at: $FILES_DIR"
             cp -r "$FILES_DIR" openwrt/
-            echo "Successfully injected files/ into openwrt rootfs."
           else
-            echo "WARNING: No 'files/' directory found in repository root."
+            echo "Creating openwrt/files directory..."
+            mkdir -p openwrt/files
+          end_if_missing=""
           fi
+
+          # 1. Inject board.json for DSA ports mapping
+          mkdir -p openwrt/files/etc
+          cat << 'EOF' > openwrt/files/etc/board.json
+          {
+                  "model": {
+                          "id": "360,360t6m",
+                          "name": "360T6M"
+                  },
+                  "network": {
+                          "lan": {
+                                  "ports": [ "lan1", "lan2", "lan3" ],
+                                  "protocol": "static"
+                          },
+                          "wan": {
+                                  "device": "wan",
+                                  "protocol": "dhcp"
+                          }
+                  },
+                  "system": {
+                          "compat_version": "1.1"
+                  }
+          }
+          EOF
+
+          # 2. Inject explicit network config
+          mkdir -p openwrt/files/etc/config
+          cat << 'EOF' > openwrt/files/etc/config/network
+          config interface 'loopback'
+          	option device 'lo'
+          	option proto 'static'
+          	option ipaddr '127.0.0.1'
+          	option netmask '255.0.0.0'
+
+          config globals 'globals'
+          	option ula_prefix 'fd37:ec3a:dd00::/48'
+          	option packet_steering '1'
+
+          config device
+          	option name 'br-lan'
+          	option type 'bridge'
+          	list ports 'lan1'
+          	list ports 'lan2'
+          	list ports 'lan3'
+
+          config interface 'lan'
+          	option device 'br-lan'
+          	option proto 'static'
+          	option ipaddr '192.168.1.1'
+          	option netmask '255.255.255.0'
+          	option ip6assign '60'
+
+          config interface 'wan'
+          	option device 'wan'
+          	option proto 'dhcp'
+
+          config interface 'wan6'
+          	option device 'wan'
+          	option proto 'dhcpv6'
+          EOF
+
+          # 3. Inject explicit wireless config for 2.4G and 5G broadcasting
+          cat << 'EOF' > openwrt/files/etc/config/wireless
+          config wifi-device 'radio0'
+          	option type 'mac80211'
+          	option path 'platform/1e140000.pcie/pci0000:00/0000:00:00.0'
+          	option band '2g'
+          	option channel '1'
+          	option htmode 'HT20'
+          	option disabled '0'
+          	option country 'IQ'
+
+          config wifi-iface 'default_radio0'
+          	option device 'radio0'
+          	option network 'lan'
+          	option mode 'ap'
+          	option ssid 'OpenWrt_24_Ali'
+          	option encryption 'psk2'
+          	option key '12345678'
+
+          config wifi-device 'radio1'
+          	option type 'mac80211'
+          	option path 'platform/1e140000.pcie/pci0000:00/0000:01:00.0'
+          	option band '5g'
+          	option channel '36'
+          	option htmode 'VHT80'
+          	option disabled '0'
+          	option country 'IQ'
+
+          config wifi-iface 'default_radio1'
+          	option device 'radio1'
+          	option network 'lan'
+          	option mode 'ap'
+          	option ssid 'OpenWrt_24_Ali_5G'
+          	option encryption 'psk2'
+          	option key '12345678'
+          EOF
+
+          # 4. Inject boot script to force bring up interfaces on first boot
+          mkdir -p openwrt/files/etc/init.d
+          cat << 'EOF' > openwrt/files/etc/init.d/ports_up
+          #!/bin/sh /etc/rc.common
+
+          START=99
+          boot() {
+              ip link set lan1 up 2>/dev/null || true
+              ip link set lan2 up 2>/dev/null || true
+              ip link set lan3 up 2>/dev/null || true
+              ip link set wan up 2>/dev/null || true
+          }
+          EOF
+          chmod +x openwrt/files/etc/init.d/ports_up
+
+          echo "Successfully injected board.json, network, wireless configs and ports_up script."
 
       - name: Verify device + DTS registration
         run: |
