@@ -179,16 +179,28 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s || make -j1 V=s
 
+      - name: Verify built firmware path
+        run: |
+          TARGET_DIR="openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}"
+          echo "Checking firmware output directory: $TARGET_DIR"
+          if [ -d "$TARGET_DIR" ]; then
+            echo "Directory exists. Contents:"
+            ls -lh "$TARGET_DIR"
+          else
+            echo "ERROR: Firmware output directory does not exist!"
+            exit 1
+          fi
+
       - name: List firmware
         if: success()
         run: |
-          find openwrt/bin/targets/$TARGET/$SUBTARGET/ -maxdepth 1 -type f -printf '%f\n' | sort
+          find openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/ -maxdepth 1 -type f -printf '%f\n' | sort
 
       - name: Upload firmware artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt-23.05.5-360T6M-${{ github.run_number }}
-          path: openwrt/bin/targets/${{ env.TARGET }}{{ env.SUBTARGET }}/*
+          path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
           if-no-files-found: error
           
