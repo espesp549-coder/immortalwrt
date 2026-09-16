@@ -1,11 +1,11 @@
-name: Test ImmortalWrt 23.05.13 for 360T6M
+name: Build ImmortalWrt 23.05.7 for 360T6M
 
 on:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_TAG: v23.05.13
+  REPO_TAG: v23.05.7
   TARGET: ramips
   SUBTARGET: mt7621
   DEVICE_PKG: 360_t6m
@@ -43,7 +43,7 @@ jobs:
             build-essential clang flex bison gawk gettext git \
             libncurses5-dev libssl-dev python3-distutils python3-setuptools \
             rsync unzip zlib1g-dev file wget curl xsltproc libelf-dev \
-            libfuse-dev libsnmp-dev swig ccmake cmake zstd
+            libfuse-dev libsnmp-dev swig ccache cmake zstd
 
       - name: Clone ImmortalWrt source (${{ env.REPO_TAG }})
         run: |
@@ -200,7 +200,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-23.05.13-360T6M-${{ github.run_number }}
+          name: ImmortalWrt-23.05.7-360T6M-${{ github.run_number }}
           path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
           if-no-files-found: error
           
