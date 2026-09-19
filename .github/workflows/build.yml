@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 23.05.7 for 360T6M
+name: Build Optimized ImmortalWrt 23.05.7 for 360T6M
 
 on:
   workflow_dispatch:
@@ -132,6 +132,29 @@ jobs:
             echo "Appended device block to $MK"
           fi
 
+      - name: Inject Performance & CPU Optimizations (sysctl.conf)
+        run: |
+          mkdir -p openwrt/files/etc
+          cat << 'EOF' > openwrt/files/etc/sysctl.conf
+          # تقليل التبديل العنيف على الذاكرة لحماية أداء المعالج
+          vm.swappiness=10
+          vm.vfs_cache_pressure=50
+
+          # تحسين إدارة طابور الشبكة والاتصالات للتقليل من استهلاك المعالج
+          net.core.netdev_max_backlog = 10000
+          net.core.somaxconn = 1024
+          net.ipv4.tcp_max_syn_backlog = 8192
+          net.ipv4.tcp_fin_timeout = 15
+          net.ipv4.tcp_tw_reuse = 1
+
+          # تحسين تدفق الـ TCP ومنع الـ Bufferbloat
+          net.core.rmem_max = 16777216
+          net.core.wmem_max = 16777216
+          net.ipv4.tcp_rmem = 4096 87380 16777216
+          net.ipv4.tcp_wmem = 4096 65536 16777216
+          EOF
+          echo "Performance sysctl.conf injected successfully."
+
       - name: Verify device + DTS registration
         run: |
           cd openwrt
@@ -141,13 +164,16 @@ jobs:
           echo "===== DTS PRESENT ====="
           ls -lh target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
 
-      - name: Generate .config
+      - name: Generate .config with CPU & Kernel Optimizations
         run: |
           cd openwrt
           cat << 'EOF' > .config
           CONFIG_TARGET_ramips=y
           CONFIG_TARGET_ramips_mt7621=y
           CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
+
+          # تحسينات الأداء وحجم الكود للمعالج
+          CONFIG_CC_OPTIMIZE_FOR_SIZE=y
 
           # UBI/UBIFS support (kernel-level)
           CONFIG_MTD_UBI=y
@@ -200,7 +226,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-23.05.7-360T6M-${{ github.run_number }}
+          name: Optimized-ImmortalWrt-23.05.7-360T6M-${{ github.run_number }}
           path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
           if-no-files-found: error
           
