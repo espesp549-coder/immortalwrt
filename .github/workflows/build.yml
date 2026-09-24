@@ -164,7 +164,7 @@ jobs:
           echo "===== DTS PRESENT ====="
           ls -lh target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
 
-      - name: Generate .config with CPU & Kernel Optimizations
+      - name: Generate .config with CPU, Kernel & WireGuard Optimizations
         run: |
           cd openwrt
           cat << 'EOF' > .config
@@ -185,6 +185,11 @@ jobs:
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
+
+          # WireGuard Support Options
+          CONFIG_PACKAGE_kmod-wireguard=y
+          CONFIG_PACKAGE_wireguard-tools=y
+          CONFIG_PACKAGE_luci-app-wireguard=y
           EOF
           make defconfig
 
@@ -193,6 +198,8 @@ jobs:
           cd openwrt
           echo "===== TARGET ====="
           grep '^CONFIG_TARGET_' .config | grep -E 'ramips|mt7621|360_t6m' || echo "WARNING: device profile not enabled"
+          echo "===== WIREGUARD CONFIG ====="
+          grep 'WIREGUARD' .config || echo "WARNING: WireGuard options missing"
 
       - name: Download package sources
         run: |
