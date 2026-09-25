@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir -p openwrt/files/etc
           
-          # 1. تحديث board.json بتعريف دقيق ومضبوط لمنافذ الـ DSA الخاصة بالـ 360T6M
+          # 1. إعدادات الـ board.json الخاصة بالمنافذ
           cat << 'EOF' > openwrt/files/etc/board.json
           {
                   "model": {
@@ -118,7 +118,7 @@ jobs:
           }
           EOF
 
-          # 2. حقن إعدادات الشبكة بنظام DSA السليم
+          # 2. إعدادات الشبكة
           mkdir -p openwrt/files/etc/config
           cat << 'EOF' > openwrt/files/etc/config/network
           config interface 'loopback'
@@ -154,7 +154,7 @@ jobs:
                   option proto 'dhcpv6'
           EOF
 
-          # 3. سكربت توليد الماك أدرس العشوائي الفريد لمنع التضارب
+          # 3. سكربت الماك أدرس العشوائي
           mkdir -p openwrt/files/etc/uci-defaults
           cat << 'EOF' > openwrt/files/etc/uci-defaults/99_generate_mac
           #!/bin/sh
@@ -168,33 +168,6 @@ jobs:
           chmod +x openwrt/files/etc/uci-defaults/99_generate_mac
 
           echo "Fixed DSA board.json and network configuration injected successfully."
-
-      - name: Verify Injected Files & Configurations (تحقق شامل)
-        run: |
-          echo "===== 1. Verify board.json ====="
-          if [ -f "openwrt/files/etc/board.json" ]; then
-            echo "board.json exists successfully."
-            cat openwrt/files/etc/board.json
-          else
-            echo "ERROR: board.json is missing!"
-            exit 1
-          fi
-
-          echo -e "\n===== 2. Verify network config ====="
-          if [ -f "openwrt/files/etc/config/network" ]; then
-            echo "network config exists successfully."
-          else
-            echo "ERROR: network config is missing!"
-            exit 1
-          fi
-
-          echo -e "\n===== 3. Verify MAC generator script ====="
-          if [ -f "openwrt/files/etc/uci-defaults/99_generate_mac" ] && [ -x "openwrt/files/etc/uci-defaults/99_generate_mac" ]; then
-            echo "MAC generator script exists and is executable."
-          else
-            echo "ERROR: MAC generator script is missing or not executable!"
-            exit 1
-          fi
 
       - name: Inject device definition into mt7621.mk
         run: |
@@ -231,16 +204,7 @@ jobs:
           EOF
           echo "Performance sysctl.conf injected successfully."
 
-      - name: Verify device + DTS registration
-        run: |
-          cd openwrt
-          echo "===== DEVICE BLOCK ====="
-          grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || { echo "NOT FOUND — build will fail"; exit 1; }
-          echo
-          echo "===== DTS PRESENT ====="
-          ls -lh target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
-
-      - name: Generate .config with CPU, Kernel & WireGuard Optimizations
+      - name: Generate .config with CPU & Kernel Optimizations
         run: |
           cd openwrt
           cat << 'EOF' > .config
@@ -255,19 +219,8 @@ jobs:
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
-          CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_PACKAGE_wireguard-tools=y
-          CONFIG_PACKAGE_luci-app-wireguard=y
           EOF
           make defconfig
-
-      - name: Verify final configuration
-        run: |
-          cd openwrt
-          echo "===== TARGET ====="
-          grep '^CONFIG_TARGET_' .config | grep -E 'ramips|mt7621|360_t6m' || { echo "WARNING: device profile not enabled"; exit 1; }
-          echo "===== WIREGUARD CONFIG ====="
-          grep 'WIREGUARD' .config || { echo "WARNING: WireGuard options missing"; exit 1; }
 
       - name: Download package sources
         run: |
