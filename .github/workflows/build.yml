@@ -90,30 +90,111 @@ jobs:
           echo "DTS copied:"
           ls -lh "openwrt/target/linux/ramips/dts/$DTS_FILE"
 
-      - name: Inject switch port mapping (02_network)
+      - name: Inject Custom Network, Board Config & Dynamic MAC Fix
         run: |
-          python3 - << 'EOF'
-          import re, sys
-          path = "openwrt/target/linux/ramips/mt7621/base-files/etc/board.d/02_network"
-          with open(path) as f:
-              content = f.read()
-          if "360,360t6m" in content:
-              print("Entry already present — skipping.")
-              sys.exit(0)
-          m = re.search(r'(ramips_setup_interfaces\(\)\s*\{.*?case\s+"?\$board"?\s+in\n)', content, re.S)
-          if not m:
-              sys.exit("ERROR: could not find case anchor in 02_network — check file manually.")
-          block = (
-              '\t360,360t6m)\n'
-              '\t\tucidef_add_switch "switch0" \\\n'
-              '\t\t\t"0:lan:3" "1:lan:2" "2:lan:1" "3:wan" "6@eth0"\n'
-              '\t\t;;\n'
-          )
-          new_content = content[:m.end()] + block + content[m.end():]
-          with open(path, "w") as f:
-              f.write(new_content)
-          print("Inserted 360,360t6m switch mapping into 02_network.")
+          mkdir -p openwrt/files/etc
+          
+          # 1. تحديث board.json بتعريف دقيق ومضبوط لمنافذ الـ DSA الخاصة بالـ 360T6M
+          cat << 'EOF' > openwrt/files/etc/board.json
+          {
+                  "model": {
+                          "id": "360,360t6m",
+                          "name": "360T6M"
+                  },
+                  "network": {
+                          "lan": {
+                                  "device": "eth0",
+                                  "ports": [ "lan1", "lan2", "lan3" ],
+                                  "protocol": "static"
+                          },
+                          "wan": {
+                                  "device": "wan",
+                                  "protocol": "dhcp"
+                          }
+                  },
+                  "system": {
+                          "compat_version": "1.1"
+                  }
+          }
           EOF
+
+          # 2. حقن إعدادات الشبكة بنظام DSA السليم
+          mkdir -p openwrt/files/etc/config
+          cat << 'EOF' > openwrt/files/etc/config/network
+          config interface 'loopback'
+                  option device 'lo'
+                  option proto 'static'
+                  option ipaddr '127.0.0.1'
+                  option netmask '255.0.0.0'
+
+          config globals 'globals'
+                  option ula_prefix 'fd37:ec3a:dd00::/48'
+                  option packet_steering '1'
+
+          config device
+                  option name 'br-lan'
+                  option type 'bridge'
+                  list ports 'lan1'
+                  list ports 'lan2'
+                  list ports 'lan3'
+
+          config interface 'lan'
+                  option device 'br-lan'
+                  option proto 'static'
+                  option ipaddr '192.168.1.1'
+                  option netmask '255.255.255.0'
+                  option ip6assign '60'
+
+          config interface 'wan'
+                  option device 'wan'
+                  option proto 'dhcp'
+
+          config interface 'wan6'
+                  option device 'wan'
+                  option proto 'dhcpv6'
+          EOF
+
+          # 3. سكربت توليد الماك أدرس العشوائي الفريد لمنع التضارب
+          mkdir -p openwrt/files/etc/uci-defaults
+          cat << 'EOF' > openwrt/files/etc/uci-defaults/99_generate_mac
+          #!/bin/sh
+          if [ -f /etc/config/network ]; then
+              RAND_MAC="d2:$(hexdump -n 5 -e '/1 "%02x:"' /dev/urandom | sed 's/:$//')"
+              uci set network.lan.macaddr="$RAND_MAC"
+              uci commit network
+          fi
+          exit 0
+          EOF
+          chmod +x openwrt/files/etc/uci-defaults/99_generate_mac
+
+          echo "Fixed DSA board.json and network configuration injected successfully."
+
+      - name: Verify Injected Files & Configurations (تحقق شامل)
+        run: |
+          echo "===== 1. Verify board.json ====="
+          if [ -f "openwrt/files/etc/board.json" ]; then
+            echo "board.json exists successfully."
+            cat openwrt/files/etc/board.json
+          else
+            echo "ERROR: board.json is missing!"
+            exit 1
+          fi
+
+          echo -e "\n===== 2. Verify network config ====="
+          if [ -f "openwrt/files/etc/config/network" ]; then
+            echo "network config exists successfully."
+          else
+            echo "ERROR: network config is missing!"
+            exit 1
+          fi
+
+          echo -e "\n===== 3. Verify MAC generator script ====="
+          if [ -f "openwrt/files/etc/uci-defaults/99_generate_mac" ] && [ -x "openwrt/files/etc/uci-defaults/99_generate_mac" ]; then
+            echo "MAC generator script exists and is executable."
+          else
+            echo "ERROR: MAC generator script is missing or not executable!"
+            exit 1
+          fi
 
       - name: Inject device definition into mt7621.mk
         run: |
@@ -136,18 +217,13 @@ jobs:
         run: |
           mkdir -p openwrt/files/etc
           cat << 'EOF' > openwrt/files/etc/sysctl.conf
-          # تقليل التبديل العنيف على الذاكرة لحماية أداء المعالج
           vm.swappiness=10
           vm.vfs_cache_pressure=50
-
-          # تحسين إدارة طابور الشبكة والاتصالات للتقليل من استهلاك المعالج
           net.core.netdev_max_backlog = 10000
           net.core.somaxconn = 1024
           net.ipv4.tcp_max_syn_backlog = 8192
           net.ipv4.tcp_fin_timeout = 15
           net.ipv4.tcp_tw_reuse = 1
-
-          # تحسين تدفق الـ TCP ومنع الـ Bufferbloat
           net.core.rmem_max = 16777216
           net.core.wmem_max = 16777216
           net.ipv4.tcp_rmem = 4096 87380 16777216
@@ -159,7 +235,7 @@ jobs:
         run: |
           cd openwrt
           echo "===== DEVICE BLOCK ====="
-          grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || echo "NOT FOUND — build will fail"
+          grep -n "360_t6m" target/linux/ramips/image/mt7621.mk || { echo "NOT FOUND — build will fail"; exit 1; }
           echo
           echo "===== DTS PRESENT ====="
           ls -lh target/linux/ramips/dts/mt7621_qihoo_360t6m.dts
@@ -171,22 +247,14 @@ jobs:
           CONFIG_TARGET_ramips=y
           CONFIG_TARGET_ramips_mt7621=y
           CONFIG_TARGET_ramips_mt7621_DEVICE_360_t6m=y
-
-          # تحسينات الأداء وحجم الكود للمعالج
           CONFIG_CC_OPTIMIZE_FOR_SIZE=y
-
-          # UBI/UBIFS support (kernel-level)
           CONFIG_MTD_UBI=y
           CONFIG_MTD_UBI_BEB_LIMIT=20
           CONFIG_MTD_UBI_FASTMAP=y
           CONFIG_UBIFS_FS=y
-
-          # Netfilter kernel options for TProxy
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
-
-          # WireGuard Support Options
           CONFIG_PACKAGE_kmod-wireguard=y
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_luci-app-wireguard=y
@@ -197,9 +265,9 @@ jobs:
         run: |
           cd openwrt
           echo "===== TARGET ====="
-          grep '^CONFIG_TARGET_' .config | grep -E 'ramips|mt7621|360_t6m' || echo "WARNING: device profile not enabled"
+          grep '^CONFIG_TARGET_' .config | grep -E 'ramips|mt7621|360_t6m' || { echo "WARNING: device profile not enabled"; exit 1; }
           echo "===== WIREGUARD CONFIG ====="
-          grep 'WIREGUARD' .config || echo "WARNING: WireGuard options missing"
+          grep 'WIREGUARD' .config || { echo "WARNING: WireGuard options missing"; exit 1; }
 
       - name: Download package sources
         run: |
@@ -212,13 +280,19 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: Verify built firmware path
+      - name: Verify built firmware path & files
         run: |
           TARGET_DIR="openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}"
           echo "Checking firmware output directory: $TARGET_DIR"
           if [ -d "$TARGET_DIR" ]; then
             echo "Directory exists. Contents:"
             ls -lh "$TARGET_DIR"
+            if ls "$TARGET_DIR"/*360t6m* 1> /dev/null 2>&1; then
+              echo "Firmware bin file for 360T6M generated successfully!"
+            else
+              echo "ERROR: 360T6M bin file not found in output directory!"
+              exit 1
+            fi
           else
             echo "ERROR: Firmware output directory does not exist!"
             exit 1
