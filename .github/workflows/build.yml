@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir -p openwrt/files/etc
           
-          # 1. حقن ملف board.json مخصص لـ DSA
+          # 1. تحديث board.json بتعريف دقيق ومضبوط لمنافذ الـ DSA الخاصة بالـ 360T6M
           cat << 'EOF' > openwrt/files/etc/board.json
           {
                   "model": {
@@ -103,6 +103,7 @@ jobs:
                   },
                   "network": {
                           "lan": {
+                                  "device": "eth0",
                                   "ports": [ "lan1", "lan2", "lan3" ],
                                   "protocol": "static"
                           },
@@ -117,7 +118,7 @@ jobs:
           }
           EOF
 
-          # 2. حقن إعدادات الشبكة مع دعم توليد MAC عشوائي فريد لمنع التضارب
+          # 2. حقن إعدادات الشبكة بنظام DSA السليم
           mkdir -p openwrt/files/etc/config
           cat << 'EOF' > openwrt/files/etc/config/network
           config interface 'loopback'
@@ -153,7 +154,7 @@ jobs:
                   option proto 'dhcpv6'
           EOF
 
-          # 3. إضافة سكربت تشغيل أولي (uci-defaults) لتوليد MAC عشوائي فريد للراوتر
+          # 3. سكربت توليد الماك أدرس العشوائي الفريد لمنع التضارب
           mkdir -p openwrt/files/etc/uci-defaults
           cat << 'EOF' > openwrt/files/etc/uci-defaults/99_generate_mac
           #!/bin/sh
@@ -166,7 +167,7 @@ jobs:
           EOF
           chmod +x openwrt/files/etc/uci-defaults/99_generate_mac
 
-          echo "Custom DSA network configs and dynamic MAC fix injected successfully."
+          echo "Fixed DSA board.json and network configuration injected successfully."
 
       - name: Verify Injected Files & Configurations (تحقق شامل)
         run: |
@@ -266,7 +267,7 @@ jobs:
           echo "===== TARGET ====="
           grep '^CONFIG_TARGET_' .config | grep -E 'ramips|mt7621|360_t6m' || { echo "WARNING: device profile not enabled"; exit 1; }
           echo "===== WIREGUARD CONFIG ====="
-          grep 'WIREGUARD' .config || { echo "WARNING: WireGuard options missing"; exit 1; }
+          grep -i 'wireguard' .config || { echo "WARNING: WireGuard options missing"; exit 1; }
 
       - name: Download package sources
         run: |
@@ -286,7 +287,6 @@ jobs:
           if [ -d "$TARGET_DIR" ]; then
             echo "Directory exists. Contents:"
             ls -lh "$TARGET_DIR"
-            # التحقق من وجود ملف السوفتوير الفعلي للراوتر
             if ls "$TARGET_DIR"/*360t6m* 1> /dev/null 2>&1; then
               echo "Firmware bin file for 360T6M generated successfully!"
             else
