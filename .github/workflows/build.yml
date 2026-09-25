@@ -1,11 +1,11 @@
-name: Build Optimized ImmortalWrt 23.05.7 for 360T6M
+name: Build Optimized ImmortalWrt 24.10.8 for 360T6M
 
 on:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_TAG: v23.05.7
+  REPO_TAG: v24.10.8
   TARGET: ramips
   SUBTARGET: mt7621
   DEVICE_PKG: 360_t6m
@@ -47,7 +47,7 @@ jobs:
 
       - name: Clone ImmortalWrt source (${{ env.REPO_TAG }})
         run: |
-          git clone --branch openwrt-23.05 --single-branch --depth 1 $REPO_URL openwrt
+          git clone --branch openwrt-24.10 --single-branch --depth 1 $REPO_URL openwrt
           cd openwrt
           git fetch --depth 1 origin tag $REPO_TAG
           git checkout $REPO_TAG
@@ -240,7 +240,6 @@ jobs:
           if [ -d "$TARGET_DIR" ]; then
             echo "Directory exists. Contents:"
             ls -lh "$TARGET_DIR"
-            # البحث المرن الشامل عن أي ملف يخص الراوتر بالأحرف الكبيرة أو الصغيرة
             if ls "$TARGET_DIR"/*360* 1> /dev/null 2>&1; then
               echo "Firmware bin files for 360T6M generated successfully!"
             else
@@ -261,7 +260,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Optimized-ImmortalWrt-23.05.7-360T6M-${{ github.run_number }}
+          name: Optimized-ImmortalWrt-24.10.8-360T6M-${{ github.run_number }}
           path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
           if-no-files-found: error
           
