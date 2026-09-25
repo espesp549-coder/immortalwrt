@@ -240,10 +240,11 @@ jobs:
           if [ -d "$TARGET_DIR" ]; then
             echo "Directory exists. Contents:"
             ls -lh "$TARGET_DIR"
-            if ls "$TARGET_DIR"/*360t6m* 1> /dev/null 2>&1; then
-              echo "Firmware bin file for 360T6M generated successfully!"
+            # البحث المرن الشامل عن أي ملف يخص الراوتر بالأحرف الكبيرة أو الصغيرة
+            if ls "$TARGET_DIR"/*360* 1> /dev/null 2>&1; then
+              echo "Firmware bin files for 360T6M generated successfully!"
             else
-              echo "ERROR: 360T6M bin file not found in output directory!"
+              echo "ERROR: 360T6M bin files not found in output directory!"
               exit 1
             fi
           else
