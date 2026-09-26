@@ -90,11 +90,11 @@ jobs:
           echo "DTS copied:"
           ls -lh "openwrt/target/linux/ramips/dts/$DTS_FILE"
 
-      - name: Inject Custom Network, Board Config & Dynamic MAC Fix
+      - name: Inject Correct DSA Board.json, Network & Fix 24.10 Interfaces
         run: |
           mkdir -p openwrt/files/etc
           
-          # 1. إعدادات الـ board.json الخاصة بالمنافذ
+          # 1. إعدادات الـ board.json الخاصة بمتطلبات معمارية DSA لنواة 6.6 في 24.10
           cat << 'EOF' > openwrt/files/etc/board.json
           {
                   "model": {
@@ -118,7 +118,7 @@ jobs:
           }
           EOF
 
-          # 2. إعدادات الشبكة
+          # 2. إعدادات الشبكة المتوافقة مع بنية جهاز 360T6M ونتائج DSA
           mkdir -p openwrt/files/etc/config
           cat << 'EOF' > openwrt/files/etc/config/network
           config interface 'loopback'
@@ -154,20 +154,28 @@ jobs:
                   option proto 'dhcpv6'
           EOF
 
-          # 3. سكربت الماك أدرس العشوائي
+          # 3. سكربت تهيئة أول تشغيل (لتوليد ماك عشوائي، إصلاح تفريغ المنافذ وتفعيل IPv6 RA الخاص بـ 24.10)
           mkdir -p openwrt/files/etc/uci-defaults
-          cat << 'EOF' > openwrt/files/etc/uci-defaults/99_generate_mac
+          cat << 'EOF' > openwrt/files/etc/uci-defaults/99_immortalwrt_24_fixes
           #!/bin/sh
+          # توليد ماك أدرس عشوائي للـ LAN
           if [ -f /etc/config/network ]; then
               RAND_MAC="d2:$(hexdump -n 5 -e '/1 "%02x:"' /dev/urandom | sed 's/:$//')"
               uci set network.lan.macaddr="$RAND_MAC"
               uci commit network
           fi
+
+          # تفعيل IPv6 RA المعطل افتراضياً في إصدارات 24.10
+          if uci get dhcp.lan >/dev/null 2>&1; then
+              uci set dhcp.lan.ra='server'
+              uci set dhcp.lan.ra_management='1'
+              uci commit dhcp
+          fi
           exit 0
           EOF
-          chmod +x openwrt/files/etc/uci-defaults/99_generate_mac
+          chmod +x openwrt/files/etc/uci-defaults/99_immortalwrt_24_fixes
 
-          echo "Fixed DSA board.json and network configuration injected successfully."
+          echo "24.10 DSA board.json, network and uci-defaults fixes injected successfully."
 
       - name: Inject device definition into mt7621.mk
         run: |
@@ -186,7 +194,7 @@ jobs:
             echo "Appended device block to $MK"
           fi
 
-      - name: Inject Performance & CPU Optimizations (sysctl.conf)
+      - name: Inject Performance & Kernel Optimizations (sysctl.conf)
         run: |
           mkdir -p openwrt/files/etc
           cat << 'EOF' > openwrt/files/etc/sysctl.conf
@@ -204,7 +212,7 @@ jobs:
           EOF
           echo "Performance sysctl.conf injected successfully."
 
-      - name: Generate .config with CPU & Kernel Optimizations
+      - name: Generate .config with Wi-Fi Drivers, CPU & Kernel Optimizations for 24.10
         run: |
           cd openwrt
           cat << 'EOF' > .config
@@ -219,6 +227,9 @@ jobs:
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NF_CONNTRACK_MARK=y
+          CONFIG_PACKAGE_kmod-mt7603=y
+          CONFIG_PACKAGE_kmod-mt7615=y
+          CONFIG_PACKAGE_wpad-openssl=y
           EOF
           make defconfig
 
