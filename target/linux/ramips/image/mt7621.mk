@@ -4041,7 +4041,7 @@ define Device/360_t6m
   $(Device/nand)
   DEVICE_VENDOR := 360
   DEVICE_MODEL := T6M
-  DEVICE_DTS := mt7621_qihoo_360t6m
+  DEVICE_DTS := mt7621_360t6m-fixed
   SOC := mt7621
   KERNEL_SIZE := 4096k
   IMAGE_SIZE := 124416k
